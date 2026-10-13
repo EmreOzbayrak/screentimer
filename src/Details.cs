@@ -54,19 +54,37 @@ namespace ScreenTime {
             grid.Children.Add(new TextBlock { Text=label,FontSize=11,Foreground=Brush("#BBBBBB") });
             var number=new TextBlock { Text=value,FontSize=11,FontWeight=FontWeights.SemiBold }; Grid.SetColumn(number,1); grid.Children.Add(number); return grid;
         }
-        private void ShowAppDetails(string app) {
+        private ComboBox detailCategory;
+        private void ShowAppDetails(string app,bool refresh=false) {
+            if(refresh && detailCategory!=null && detailCategory.IsDropDownOpen) return;
+            double offset=refresh?Find<ScrollViewer>("EditorScroll").VerticalOffset:0;
+            object selectedCategory=refresh && detailCategory!=null?detailCategory.SelectedItem:null;
+            var oldPanel=refresh?Find<ContentControl>("EditorContent").Content as StackPanel:null;
+            var expanded=new HashSet<object>(oldPanel==null?new object[0]:oldPanel.Children.OfType<Expander>().Where(e=>e.IsExpanded).Select(e=>e.Tag));
             detailApp=app;
             var panel=new StackPanel { Margin=new Thickness(0,0,8,8) };
             panel.Children.Add(Heading(Friendly(app)));
             var activities=state.Activities.Where(a=>InRange(a.Day) && a.App==app).ToList();
             panel.Children.Add(Label(RangeName()+" · "+Logic.Duration(activities.Sum(a=>a.Seconds))+" actively used"));
+            var live=new StackPanel();
+            live.Children.Add(new TextBlock { Text="Live now · last sample",FontWeight=FontWeights.SemiBold,FontSize=13 });
+            var current=liveResources.FirstOrDefault(r=>r.App==app);
+            bool fresh=latestResources!=null && (DateTime.Now-latestResources.At).TotalSeconds>=0 && (DateTime.Now-latestResources.At).TotalSeconds<=15;
+            if(!paused && !locked && fresh && current!=null) {
+                live.Children.Add(Metric("App CPU · all processors",Cpu(current.CpuSeconds,current.CpuCapacitySeconds)));
+                live.Children.Add(Metric("App private RAM",current.PrivateMemoryMb.HasValue?Memory(current.PrivateMemoryMb.Value):"Unavailable"));
+                live.Children.Add(Metric("App GPU · busiest engine",current.Gpu.HasValue?current.Gpu.Value.ToString("0.0")+"%":"Unavailable"));
+                live.Children.Add(Label("Updated "+current.End.ToString("HH:mm:ss")+" · CPU/GPU sampled over "+current.Seconds.ToString("0.0")+"s"));
+            } else live.Children.Add(Label(paused || locked?"Sampling paused":!fresh?"Waiting for a fresh sample…":latestResources.Processes.Any(p=>p.App==app)?"Collecting the next sample…":"App is not currently running"));
+            panel.Children.Add(Card(live));
             var usage=ActivityDetails.Combine(state.Resources.Where(r=>InRange(r.Day) && r.App==app));
             if(usage.RunningSeconds>0) {
                 var stats=new StackPanel();
-                stats.Children.Add(new TextBlock { Text="Running & resource usage",FontWeight=FontWeights.SemiBold,FontSize=13,Margin=new Thickness(0,0,0,5) });
+                stats.Children.Add(new TextBlock { Text="Selected period · averages & peaks",FontWeight=FontWeights.SemiBold,FontSize=13,Margin=new Thickness(0,0,0,5) });
+                stats.Children.Add(Label("Includes menus, gameplay and background time. These are historical averages, not live readings."));
                 stats.Children.Add(Metric("Observed running",Logic.Duration(usage.RunningSeconds)));
                 stats.Children.Add(Metric("In background",Logic.Duration(usage.BackgroundSeconds)));
-                stats.Children.Add(Metric("Average CPU · whole PC",Cpu(usage.CpuSeconds,usage.CpuCapacitySeconds)));
+                stats.Children.Add(Metric("App CPU avg · all processors",Cpu(usage.CpuSeconds,usage.CpuCapacitySeconds)));
                 stats.Children.Add(Metric("CPU time consumed",CpuTime(usage.CpuSeconds)));
                 stats.Children.Add(Metric("Private RAM avg / peak",Reading(usage,"PrivateRam",true)+" / "+Reading(usage,"PrivateRam",true,true)));
                 stats.Children.Add(Metric("GPU avg / peak",Reading(usage,"Gpu")+" / "+Reading(usage,"Gpu",false,true)));
@@ -77,6 +95,7 @@ namespace ScreenTime {
                 panel.Children.Add(Card(stats));
             } else panel.Children.Add(Label("Resource history starts with this update. Keep the app running for at least 10 seconds to record it."));
             AddSessions(panel,app);
+            foreach(var session in panel.Children.OfType<Expander>()) session.IsExpanded=expanded.Contains(session.Tag);
             panel.Children.Add(new TextBlock { Text=Logic.IsBrowser(app)?"Most-used websites & pages":"Activity details",FontSize=15,FontWeight=FontWeights.SemiBold,Margin=new Thickness(0,18,0,5) });
             var ranked=ActivityDetails.Rank(activities,app);
             if(ranked.Count==0) panel.Children.Add(Label("No foreground sessions of at least 10 seconds in this period."));
@@ -91,7 +110,8 @@ namespace ScreenTime {
             }
             var controls=new StackPanel();
             controls.Children.Add(Label("Default category for this app (website overrides keep priority)"));
-            var categories=new ComboBox { ItemsSource=Logic.Categories,SelectedItem=Logic.Classify(state,app,"","") };
+            var categories=new ComboBox { ItemsSource=Logic.Categories,SelectedItem=selectedCategory??Logic.Classify(state,app,"","") };
+            detailCategory=categories;
             controls.Children.Add(categories);
             var save=new Button { Content="Save app category",Margin=new Thickness(0,8,0,0) };
             save.Click+=(s,e)=> {
@@ -100,9 +120,9 @@ namespace ScreenTime {
                 Save(); ShowAppDetails(app);
             };
             controls.Children.Add(save); panel.Children.Add(controls);
-            var refresh=new Button { Content="Refresh details",Margin=new Thickness(0,12,0,0) };
-            refresh.Click+=(s,e)=>ShowAppDetails(app); panel.Children.Add(refresh);
-            OpenEditor(panel); Find<ScrollViewer>("EditorScroll").ScrollToTop();
+            var refreshButton=new Button { Content="Refresh details",Margin=new Thickness(0,12,0,0) };
+            refreshButton.Click+=(s,e)=>ShowAppDetails(app,true); panel.Children.Add(refreshButton);
+            OpenEditor(panel); Find<ScrollViewer>("EditorScroll").ScrollToVerticalOffset(offset);
         }
         private void ShowBackground(bool refresh=false) {
             showingBackground=true; detailApp=null;
@@ -156,6 +176,7 @@ namespace ScreenTime {
                 stats.Children.Add(Metric("Fan speed", "Sensor unavailable"));
                 stats.Children.Add(Label("Measured coverage: CPU "+Logic.Duration(session.Metric("Cpu").Seconds)+", RAM "+Logic.Duration(session.Metric("PrivateRam").Seconds)+", GPU "+Logic.Duration(session.Metric("Gpu").Seconds)+". Peaks are sampled; focus transitions may be neither foreground nor background."));
                 var expander=new Expander { Header=session.FirstSeen.ToString("d MMM HH:mm")+" – "+session.LastSeen.ToString("HH:mm")+" · "+Logic.Duration(session.RunningSeconds),Foreground=Brush("#EEEEEE"),FontSize=11,Content=stats,Margin=new Thickness(0,10,0,5) };
+                expander.Tag=session.FirstSeen;
                 panel.Children.Add(expander);
             }
         }

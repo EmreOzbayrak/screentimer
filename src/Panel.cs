@@ -84,6 +84,7 @@ namespace ScreenTime {
                 Find<TextBlock>("GoalEstimate").Text="";
             }
             if(showingBackground && detailApp==null) ShowBackground(true);
+            if(detailApp!=null) ShowAppDetails(detailApp,true);
         }
         private void DrawDonut(List<ActivitySlice> slices,double total) {
             var canvas=Find<Canvas>("Donut"); canvas.Children.Clear();

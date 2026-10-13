@@ -32,6 +32,7 @@ namespace ScreenTime {
         private int resourceGeneration, taskGeneration;
         private DateTime nextResourceSample=DateTime.MinValue;
         private ResourceSnapshot latestResources;
+        private List<ResourceInterval> liveResources=new List<ResourceInterval>();
         private string detailApp;
         private bool showingBackground;
         private int backgroundSort;
@@ -183,6 +184,20 @@ namespace ScreenTime {
                         window.UpdateLayout(); RenderPreview("preview-app-details.png");
                         var detailPanel=(StackPanel)Find<ContentControl>("EditorContent").Content;
                         var sessionPanel=detailPanel.Children.OfType<Expander>().First(); sessionPanel.IsExpanded=true;
+                        detailCategory.SelectedItem="Education";
+                        paused=false;
+                        latestResources=new ResourceSnapshot { At=DateTime.Now };
+                        liveResources.Add(new ResourceInterval { App="chrome",End=DateTime.Now,Seconds=5,CpuSeconds=14,CpuCapacitySeconds=140,PrivateMemoryMb=6144,Gpu=42 });
+                        Refresh();
+                        detailPanel=(StackPanel)Find<ContentControl>("EditorContent").Content;
+                        sessionPanel=detailPanel.Children.OfType<Expander>().First();
+                        if(!sessionPanel.IsExpanded || (string)detailCategory.SelectedItem!="Education") throw new Exception("Auto-refresh lost expanded sessions or an unsaved category.");
+                        var liveCard=detailPanel.Children.OfType<Border>().First();
+                        var livePanel=(StackPanel)liveCard.Child;
+                        if(!livePanel.Children.OfType<Grid>().Any(g=>g.Children.OfType<TextBlock>().Any(t=>t.Text=="6.00 GiB"))) throw new Exception("Live usage did not refresh independently of historical averages.");
+                        window.UpdateLayout(); RenderPreview("preview-live-resources.png");
+                        ResetResources();
+                        paused=true;
                         sessionPanel.BringIntoView(); window.UpdateLayout(); RenderPreview("preview-session.png"); CloseEditor();
                         ShowBackground(); window.UpdateLayout(); RenderPreview("preview-background.png");
                         ShowAppDetails("chrome"); CloseEditor();
@@ -285,11 +300,13 @@ namespace ScreenTime {
             try { store.Save(state); lastSave=DateTime.UtcNow; lastError=null; }
             catch(Exception ex) { if(lastError!=ex.Message) Notice("Activity could not be saved: "+ex.Message); lastError=ex.Message; lastSave=DateTime.UtcNow; }
         }
-        private void ResetResources() { resourceGeneration++; resources.Reset(); latestResources=null; nextResourceSample=DateTime.MinValue; }
+        private void ResetResources() { resourceGeneration++; resources.Reset(); latestResources=null; liveResources.Clear(); nextResourceSample=DateTime.MinValue; }
         private void PollResources() {
             if(resourceTask!=null && resourceTask.IsCompleted) {
                 if(resourceTask.Status==TaskStatus.RanToCompletion && taskGeneration==resourceGeneration && !paused && !locked) {
-                    latestResources=resourceTask.Result; resources.Accept(state,latestResources);
+                    var sample=resourceTask.Result;
+                    liveResources=latestResources==null?new List<ResourceInterval>():ResourceMonitor.Compare(latestResources,sample);
+                    latestResources=sample; resources.Accept(state,latestResources);
                 }
                 resourceTask=null;
             }
