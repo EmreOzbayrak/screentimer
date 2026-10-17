@@ -4,7 +4,11 @@ A native Windows tray app for screen time, calendar history and app resource ses
 
 ## Install and run
 
-Extract the Windows release ZIP and run:
+Download [ScreenTime.exe](https://github.com/EmreOzbayrak/screentimer/releases/latest/download/ScreenTime.exe) from the [latest release](https://github.com/EmreOzbayrak/screentimer/releases/latest), then double-click it. No extraction or commands are needed. Look for its clock icon beside the Windows clock or under **^ hidden icons**. Enable **Start with Windows** in Settings if you want it to launch when you sign in.
+
+The executable is unsigned, so Windows may show an unknown-publisher warning. It requires Windows 10/11 with .NET Framework 4.8; it does not bundle that Windows runtime.
+
+For an optional Start menu shortcut, extract the Windows release ZIP and run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -EnableStartup

@@ -1,6 +1,6 @@
 param(
     [string]$BuildDirectory = 'dist',
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.2.0',
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.2.1',
     [string]$CertificateThumbprint,
     [string]$TimestampServer = 'http://timestamp.digicert.com'
 )
@@ -46,6 +46,9 @@ $release = Join-Path $output "ScreenTime-$Version-windows.zip"
 $source = Join-Path $output "ScreenTime-$Version-source.zip"
 Write-Zip $stage $releaseFiles $release
 Write-Zip $root $sourceFiles $source
-@($release, $source) | ForEach-Object { $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256; "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($_))" } | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding ascii
+$standalone = Join-Path $output 'ScreenTime.exe'
+Copy-Item -LiteralPath (Join-Path $stage 'ScreenTime.exe') -Destination $standalone -Force
+@($standalone, $release, $source) | ForEach-Object { $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256; "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($_))" } | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding ascii
+Write-Output "Standalone app: $standalone"
 Write-Output "Release ZIP: $release"
 Write-Output "Source ZIP: $source"
