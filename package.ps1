@@ -1,6 +1,6 @@
 param(
     [string]$BuildDirectory = 'dist',
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.2.1',
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.2.2',
     [string]$CertificateThumbprint,
     [string]$TimestampServer = 'http://timestamp.digicert.com'
 )

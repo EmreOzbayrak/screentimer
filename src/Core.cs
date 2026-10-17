@@ -31,6 +31,7 @@ namespace ScreenTime {
             new Goal { Name="Start learning a language", Hours=60, Minutes=20 }
         };
         [DataMember] public int IdleSeconds = 60;
+        [DataMember] public int MinimumLogSeconds = 10;
         [DataMember] public bool CaptureTitles = false;
         [DataMember] public bool IncludePrivateWindows = false;
         [DataMember] public bool CollectBrowserResources = false;
@@ -41,6 +42,7 @@ namespace ScreenTime {
         [DataMember] public List<ResourceUsage> Sessions = new List<ResourceUsage>();
         [DataMember] public bool StartupEnabled;
         [DataMember] public int StartupVersion;
+        [OnDeserializing] private void Defaults(StreamingContext context) { IdleSeconds=60; MinimumLogSeconds=10; }
         public void Normalize() {
             if (Activities == null) Activities = new List<Activity>();
             if (Resources == null) Resources = new List<ResourceUsage>();
@@ -48,12 +50,17 @@ namespace ScreenTime {
             if (Rules == null) Rules = new Dictionary<string,string>();
             if (Excluded == null) Excluded = new List<string>();
             if (Goals == null) Goals = new List<Goal>();
-            if (IdleSeconds < 30) IdleSeconds = 60;
+            if (IdleSeconds != 0 && IdleSeconds < 30) IdleSeconds = 60;
             IdleSeconds=Math.Min(3600,IdleSeconds);
+            if(MinimumLogSeconds<0) MinimumLogSeconds=10;
+            MinimumLogSeconds=Math.Min(3600,MinimumLogSeconds);
             Activities.RemoveAll(a=>a==null || String.IsNullOrEmpty(a.App) || String.IsNullOrEmpty(a.Day) || Double.IsNaN(a.Seconds) || Double.IsInfinity(a.Seconds) || a.Seconds<0);
             Resources.RemoveAll(r=>r==null || String.IsNullOrEmpty(r.App) || String.IsNullOrEmpty(r.Day));
             Sessions.RemoveAll(r=>r==null || String.IsNullOrEmpty(r.App) || String.IsNullOrEmpty(r.Day) || String.IsNullOrEmpty(r.SessionId));
             Goals.RemoveAll(g=>g==null || String.IsNullOrWhiteSpace(g.Name) || Double.IsNaN(g.Hours) || Double.IsInfinity(g.Hours) || g.Hours<0.5 || g.Hours>10000 || g.Minutes<1 || g.Minutes>720);
+            foreach(var key in Rules.Keys.Where(k=>!Logic.Categories.Contains(Rules[k])).ToList()) Rules.Remove(key);
+            foreach(var activity in Activities) if(!Logic.Categories.Contains(activity.Category)) activity.Category=Logic.Classify(this,activity.App,activity.Title,activity.Domain);
+            Excluded=Excluded.Where(x=>!String.IsNullOrWhiteSpace(x)).ToList();
             if(PrivacyVersion<1) { CaptureTitles=false; IncludePrivateWindows=false; CollectBrowserResources=false; PrivacyVersion=1; }
         }
     }
@@ -65,21 +72,30 @@ namespace ScreenTime {
         public static bool IsEncrypted(byte[] bytes) { return bytes.Length>=Header.Length && bytes.Take(Header.Length).SequenceEqual(Header); }
         private static byte[] Protect(byte[] bytes) { return Header.Concat(ProtectedData.Protect(bytes,null,DataProtectionScope.CurrentUser)).ToArray(); }
         private static byte[] Unprotect(byte[] bytes) { return ProtectedData.Unprotect(bytes.Skip(Header.Length).ToArray(),null,DataProtectionScope.CurrentUser); }
+        public string SnapshotDirectory { get { return Path+".snapshots"; } }
+        private IEnumerable<string> Snapshots() {
+            return Directory.Exists(SnapshotDirectory)?Directory.GetFiles(SnapshotDirectory,"*.bin").OrderByDescending(p=>p):Enumerable.Empty<string>();
+        }
         public State Load() {
-            if (!File.Exists(Path) && !File.Exists(Path+".bak")) { var fresh=new State(); fresh.PrivacyVersion=1; return fresh; }
-            State result;
-            try { result=Read(Path); }
-            catch {
-                Warning="The history file could not be read. Recovered the backup; any unreadable data is preserved in encrypted form.";
-                if(File.Exists(Path)) {
-                    byte[] bytes=File.ReadAllBytes(Path);
-                    File.WriteAllBytes(Path+".unreadable-"+Guid.NewGuid().ToString("N"),IsEncrypted(bytes)?bytes:Protect(bytes));
+            var candidates=new[]{Path,Path+".tmp",Path+".bak"}.Concat(Snapshots()).Where(File.Exists).ToList();
+            if(candidates.Count==0) { var fresh=new State(); fresh.PrivacyVersion=1; return fresh; }
+            Exception failure=null;
+            foreach(string candidate in candidates) {
+                State result;
+                try { result=Read(candidate); }
+                catch(Exception ex) { failure=ex; continue; }
+                if(candidate!=Path) {
+                    Warning="History recovered from "+System.IO.Path.GetFileName(candidate)+". Original files were preserved; some recent activity may be missing.";
+                    if(File.Exists(Path)) {
+                        byte[] bytes=File.ReadAllBytes(Path);
+                        File.WriteAllBytes(Path+".unreadable-"+Guid.NewGuid().ToString("N"),IsEncrypted(bytes)?bytes:Protect(bytes));
+                    }
+                    // Commit the recovered state before starting the timer or reusing .tmp.
+                    Save(result,false);
                 }
-                try { result=Read(Path+".bak"); }
-                catch(Exception ex) { throw new InvalidDataException("History could not be decrypted or recovered. Sign in with the Windows account that created it. Original files were not overwritten.",ex); }
+                SecureExistingFiles(); return result;
             }
-            SecureExistingFiles();
-            return result;
+            throw new InvalidDataException("History could not be decrypted or recovered. Sign in with the Windows account that created it. Original files were not overwritten.",failure);
         }
         private State Read(string path) {
             byte[] bytes=File.ReadAllBytes(path);
@@ -89,8 +105,10 @@ namespace ScreenTime {
                 data.Normalize(); return data;
             }
         }
-        public void Save(State state) {
+        public void Save(State state) { Save(state,true); }
+        private void Save(State state,bool checkpoint) {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));
+            if(checkpoint) CreateCheckpoint();
             var temp=Path+".tmp";
             using(var stream=new MemoryStream()) {
                 new DataContractJsonSerializer(typeof(State)).WriteObject(stream,state);
@@ -100,6 +118,26 @@ namespace ScreenTime {
             if(File.Exists(Path)) File.Replace(temp,Path,Path+".bak");
             else File.Move(temp,Path);
             SecureExistingFiles();
+        }
+        private void CreateCheckpoint() {
+            if(!File.Exists(Path)) return;
+            string checkpoint=System.IO.Path.Combine(SnapshotDirectory,DateTime.Today.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture)+".bin");
+            if(File.Exists(checkpoint)) return;
+            // Only checkpoint a readable state; never enshrine a corrupt primary file.
+            Read(Path);
+            Directory.CreateDirectory(SnapshotDirectory);
+            byte[] data=File.ReadAllBytes(Path);
+            string temp=checkpoint+".tmp";
+            File.WriteAllBytes(temp,IsEncrypted(data)?data:Protect(data));
+            File.Move(temp,checkpoint);
+            foreach(string old in Snapshots().Skip(30)) File.Delete(old);
+        }
+        public void DeleteHistory(State state) {
+            state.Activities.Clear(); state.Resources.Clear(); state.Sessions.Clear();
+            Save(state,false); Save(state,false);
+            foreach(string file in Snapshots()) File.Delete(file);
+            if(Directory.Exists(SnapshotDirectory)) foreach(string file in Directory.GetFiles(SnapshotDirectory,"*.bin.tmp")) File.Delete(file);
+            foreach(string file in Directory.GetFiles(System.IO.Path.GetDirectoryName(Path),System.IO.Path.GetFileName(Path)+".unreadable-*")) File.Delete(file);
         }
         private void SecureExistingFiles() {
             string directory=System.IO.Path.GetDirectoryName(Path), name=System.IO.Path.GetFileName(Path);
@@ -116,6 +154,9 @@ namespace ScreenTime {
     }
     public static class Logic {
         public static readonly string[] Categories = { "Work", "Education", "Fun", "Social", "Other" };
+        public static List<string> ParseExclusions(string text) {
+            return text.Split(',').Select(x=>x.Trim()).Select(x=>x.EndsWith(".exe",StringComparison.OrdinalIgnoreCase)?x.Substring(0,x.Length-4):x).Where(x=>x.Length>0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
         public static string RuleKey(string app,string domain) { return String.IsNullOrEmpty(domain) ? "app:"+app.ToLowerInvariant() : "site:"+domain.ToLowerInvariant(); }
         public static string Classify(State state,string app,string title,string domain) {
             string category;
@@ -137,7 +178,7 @@ namespace ScreenTime {
             DateTime start=end.AddSeconds(-seconds);
             while(start<end) {
                 var stop=end<start.Date.AddDays(1) ? end : start.Date.AddDays(1);
-                string day=start.ToString("yyyy-MM-dd");
+                string day=start.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
                 string category=Classify(state,app,title,domain);
                 var row=state.Activities.LastOrDefault(a=>a.Day==day && a.App==app && a.Title==title && a.Domain==domain && a.Category==category);
                 if(row==null) { row=new Activity { Day=day,App=app,Title=title,Domain=domain,Category=category }; state.Activities.Add(row); }

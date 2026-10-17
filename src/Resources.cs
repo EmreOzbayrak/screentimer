@@ -10,7 +10,7 @@ namespace ScreenTime {
     [DataContract] public class MetricSummary {
         [DataMember] public double Total, Seconds, Peak;
         public double Average { get { return Seconds>0?Total/Seconds:0; } }
-        public void Add(double value,double seconds) { if(Double.IsNaN(value) || Double.IsInfinity(value) || value<0 || seconds<=0) return; Total+=value*seconds; Seconds+=seconds; Peak=Math.Max(Peak,value); }
+        public void Add(double value,double seconds) { if(Double.IsNaN(value) || Double.IsInfinity(value) || value<0 || Double.IsNaN(seconds) || Double.IsInfinity(seconds) || seconds<=0) return; Total+=value*seconds; Seconds+=seconds; Peak=Math.Max(Peak,value); }
     }
     [DataContract] public class ResourceUsage {
         [DataMember] public string Day, App, SessionId;
@@ -83,7 +83,7 @@ namespace ScreenTime {
                 var data=new PerformanceCounterCategory("GPU Engine").ReadCategory()["Utilization Percentage"];
                 if(data!=null) {
                     foreach(InstanceData entry in data.Values) result.GpuSamples[entry.InstanceName]=entry.Sample;
-                    result.GpuAvailable=true;
+                    result.GpuAvailable=result.GpuSamples.Count>0;
                 }
             } catch { /* Unsupported drivers or unavailable/localized counters stay unavailable. */ }
             return result;
@@ -150,7 +150,7 @@ namespace ScreenTime {
                 interval.SessionId=app.Id;
                 if(app.Qualified) { Accumulate(state,interval); continue; }
                 app.Seconds+=interval.Seconds; app.Intervals.Add(interval);
-                if(app.Seconds<VisitRecorder.MinimumSeconds) continue;
+                if(app.Seconds<state.MinimumLogSeconds) continue;
                 app.Qualified=true;
                 foreach(var held in app.Intervals) Accumulate(state,held);
                 app.Intervals.Clear();
@@ -167,7 +167,7 @@ namespace ScreenTime {
         }
         private static void AddRow(List<ResourceUsage> rows,ResourceInterval interval,DateTime start,DateTime end,bool session) {
             double seconds=(end-start).TotalSeconds, ratio=seconds/interval.Seconds;
-            string day=start.ToString("yyyy-MM-dd");
+            string day=start.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
             var row=rows.LastOrDefault(r=>r.Day==day && r.App==interval.App && (!session || r.SessionId==interval.SessionId));
             if(row==null) { row=new ResourceUsage { Day=day,App=interval.App,SessionId=session?interval.SessionId:null,FirstSeen=start }; rows.Add(row); }
             row.LastSeen=end; row.RunningSeconds+=seconds;

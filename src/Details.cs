@@ -93,12 +93,12 @@ namespace ScreenTime {
                 if(usage.Metric("PrivateRam").Seconds==0) stats.Children.Add(Label("Older RAM records include shared memory: "+Memory(usage.MemoryMbSeconds/usage.RunningSeconds)+" average working set. Private RAM was not measured then, or is unavailable."));
                 stats.Children.Add(Label("Last observed: "+usage.LastSeen.ToString("d MMM, HH:mm")));
                 panel.Children.Add(Card(stats));
-            } else panel.Children.Add(Label("Resource history starts with this update. Keep the app running for at least 10 seconds to record it."));
+            } else panel.Children.Add(Label("No resource history in this period. Current minimum before logging: "+state.MinimumLogSeconds+" seconds. Resource samples arrive approximately every 5 seconds."));
             AddSessions(panel,app);
             foreach(var session in panel.Children.OfType<Expander>()) session.IsExpanded=expanded.Contains(session.Tag);
             panel.Children.Add(new TextBlock { Text=Logic.IsBrowser(app)?"Most-used websites & pages":"Activity details",FontSize=15,FontWeight=FontWeights.SemiBold,Margin=new Thickness(0,18,0,5) });
             var ranked=ActivityDetails.Rank(activities,app);
-            if(ranked.Count==0) panel.Children.Add(Label("No foreground sessions of at least 10 seconds in this period."));
+            if(ranked.Count==0) panel.Children.Add(Label("No qualifying foreground visits in this period. Current minimum before logging: "+state.MinimumLogSeconds+" seconds."));
             foreach(var row in ranked) {
                 var content=new StackPanel();
                 var line=Metric(row.Name,Logic.Duration(row.Seconds));
@@ -124,19 +124,22 @@ namespace ScreenTime {
             refreshButton.Click+=(s,e)=>ShowAppDetails(app,true); panel.Children.Add(refreshButton);
             OpenEditor(panel); Find<ScrollViewer>("EditorScroll").ScrollToVerticalOffset(offset);
         }
+        private ComboBox backgroundSortBox;
         private void ShowBackground(bool refresh=false) {
+            if(refresh && backgroundSortBox!=null && backgroundSortBox.IsDropDownOpen) return;
             showingBackground=true; detailApp=null;
             double offset=refresh?Find<ScrollViewer>("EditorScroll").VerticalOffset:0;
             var panel=new StackPanel { Margin=new Thickness(0,0,8,8) };
             panel.Children.Add(Heading("Background & resources"));
-            panel.Children.Add(Label(RangeName()+" · apps observed running for at least 10 seconds"));
+            panel.Children.Add(Label(RangeName()+" · current logging minimum: "+state.MinimumLogSeconds+" seconds"));
             panel.Children.Add(Label("Runtime includes foreground and background. Click an app for sessions, measured averages and whole-PC usage."));
             if(!state.CollectBrowserResources) panel.Children.Add(Label("Browser resource collection is off for privacy. You can opt in in Settings."));
             var sort=new ComboBox { ItemsSource=new[]{"Most background time","Most CPU time","Highest average RAM"},SelectedIndex=backgroundSort,Margin=new Thickness(0,8,0,5) };
+            backgroundSortBox=sort;
             sort.SelectionChanged+=(s,e)=> { backgroundSort=sort.SelectedIndex; ShowBackground(); }; panel.Children.Add(sort);
             var rows=state.Resources.Where(r=>InRange(r.Day)).GroupBy(r=>r.App).Select(g=>new { App=g.Key,Usage=ActivityDetails.Combine(g) });
             var ordered=rows.OrderByDescending(r=>backgroundSort==1?r.Usage.CpuSeconds:backgroundSort==2?r.Usage.Metric("PrivateRam").Average:r.Usage.BackgroundSeconds).ToList();
-            if(ordered.Count==0) panel.Children.Add(Label("Collecting resource history… Apps appear after at least 10 observed seconds. Sampling continues while you are idle, and stops when paused, locked, or asleep."));
+            if(ordered.Count==0) panel.Children.Add(Label("Collecting resource history… Apps appear after the configured logging minimum and a complete sample. Sampling continues while you are idle, and stops when paused, locked, or asleep."));
             foreach(var item in ordered) {
                 var usage=item.Usage; string app=item.App;
                 var content=new StackPanel();
@@ -145,7 +148,7 @@ namespace ScreenTime {
                 content.Children.Add(Metric("CPU avg / CPU time",Cpu(usage.CpuSeconds,usage.CpuCapacitySeconds)+" / "+CpuTime(usage.CpuSeconds)));
                 content.Children.Add(Metric("Private RAM avg",Reading(usage,"PrivateRam",true)));
                 content.Children.Add(Metric("GPU avg",Reading(usage,"Gpu")));
-                string status=latestResources==null?"Recorded":latestResources.Processes.Any(p=>p.App==app)?"Running now":"Not currently observed";
+                string status=paused || locked?"Sampling paused":latestResources==null || (DateTime.Now-latestResources.At).TotalSeconds>15?"Waiting for a fresh sample":latestResources.Processes.Any(p=>p.App==app)?"Running now":"Not currently observed";
                 content.Children.Add(new TextBlock { Text=status+" · last seen "+usage.LastSeen.ToString("d MMM HH:mm"),Foreground=Brush("#A6B5BD"),FontSize=10 });
                 var button=new Button { Content=content,HorizontalContentAlignment=HorizontalAlignment.Stretch,Margin=new Thickness(0,7,0,0),Padding=new Thickness(12) };
                 button.Click+=(s,e)=>ShowAppDetails(app); panel.Children.Add(button);

@@ -11,10 +11,12 @@ namespace ScreenTime {
         }
         public static DateTime End(DateTime selected,int mode) {
             var start=Start(selected,mode);
-            return mode==2?start.AddMonths(1):start.AddDays(mode==1?7:1);
+            try { return mode==2?start.AddMonths(1):start.AddDays(mode==1?7:1); }
+            catch(ArgumentOutOfRangeException) { return DateTime.MaxValue; }
         }
         public static DateTime Move(DateTime selected,int mode,int direction) {
-            return mode==2?selected.AddMonths(direction):selected.AddDays((mode==1?7:1)*direction);
+            try { return mode==2?selected.AddMonths(direction):selected.AddDays((mode==1?7:1)*direction); }
+            catch(ArgumentOutOfRangeException) { return direction<0?DateTime.MinValue:DateTime.MaxValue.Date; }
         }
         public static bool Contains(string day,DateTime selected,int mode) {
             DateTime date;
@@ -23,7 +25,7 @@ namespace ScreenTime {
         public static string Label(DateTime selected,int mode) {
             var start=Start(selected,mode);
             if(mode==2) return start.ToString("MMMM yyyy");
-            if(mode==1) return start.ToString("d MMM")+" – "+End(selected,mode).AddDays(-1).ToString("d MMM yyyy");
+            if(mode==1) { var end=End(selected,mode); return start.ToString("d MMM")+" – "+(end==DateTime.MaxValue?end:end.AddDays(-1)).ToString("d MMM yyyy"); }
             return selected.ToString("ddd, d MMM yyyy");
         }
     }

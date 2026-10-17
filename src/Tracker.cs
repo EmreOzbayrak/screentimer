@@ -26,13 +26,16 @@ namespace ScreenTime {
         private Snapshot cached;
         private bool lastCapture,lastPrivate;
         public void Reset() { cached=null; lookup=null; nextLookup=DateTime.MinValue; }
+        public static bool IsIdle(int timeoutSeconds,uint idleMilliseconds,bool inputAvailable) {
+            return timeoutSeconds!=0 && (!inputAvailable || idleMilliseconds>=(long)timeoutSeconds*1000);
+        }
         public Snapshot Sample(State state) {
             bool captureTitles=state.CaptureTitles, includePrivate=state.IncludePrivateWindows;
             if(lastCapture!=captureTitles || lastPrivate!=includePrivate) { Reset(); lastCapture=captureTitles; lastPrivate=includePrivate; }
             var input=new LastInput { Size=(uint)Marshal.SizeOf(typeof(LastInput)) };
-            if(!GetLastInputInfo(ref input)) return new Snapshot { Idle=true };
+            bool inputAvailable=state.IdleSeconds==0 || GetLastInputInfo(ref input);
             uint idle=unchecked((uint)Environment.TickCount-input.Tick);
-            if(idle>=state.IdleSeconds*1000) return new Snapshot { Idle=true };
+            if(IsIdle(state.IdleSeconds,idle,inputAvailable)) return new Snapshot { Idle=true };
             var handle=GetForegroundWindow();
             if(handle==IntPtr.Zero) return new Snapshot { Idle=true };
             uint pid; GetWindowThreadProcessId(handle,out pid);

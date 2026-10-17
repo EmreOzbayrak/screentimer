@@ -5,7 +5,9 @@ using System.Linq;
 namespace ScreenTime {
     // Short foreground sessions stay in memory until they qualify.
     public class VisitRecorder {
-        public const double MinimumSeconds=10;
+        // The one-time migration keeps its original threshold; changing the setting
+        // only affects new observations, never previously recorded history.
+        private const double LegacyMinimumSeconds=10;
         private Snapshot visit;
         private double duration;
         private bool qualified;
@@ -31,20 +33,20 @@ namespace ScreenTime {
             duration+=seconds;
             if(qualified) { Logic.Record(state,end,seconds,visit.App,visit.Title,visit.Domain); return; }
             pending.Add(Tuple.Create(end,seconds));
-            if(duration<MinimumSeconds) return;
+            if(duration<state.MinimumLogSeconds) return;
             qualified=true;
             foreach(var interval in pending) Logic.Record(state,interval.Item1,interval.Item2,visit.App,visit.Title,visit.Domain);
             pending.Clear();
         }
         public static int CleanLegacyHistory(State state) {
             if(state.BrowserVisitFilterVersion>=1) return 0;
-            int removed=state.Activities.RemoveAll(a=>Logic.IsBrowser(a.App) && a.Seconds<MinimumSeconds && (!String.IsNullOrEmpty(a.Title) || !String.IsNullOrEmpty(a.Domain)));
+            int removed=state.Activities.RemoveAll(a=>Logic.IsBrowser(a.App) && a.Seconds<LegacyMinimumSeconds && (!String.IsNullOrEmpty(a.Title) || !String.IsNullOrEmpty(a.Domain)));
             state.BrowserVisitFilterVersion=1;
             return removed;
         }
         public static int CleanLegacyApps(State state) {
             if(state.AppVisitFilterVersion>=1) return 0;
-            var shortApps=state.Activities.GroupBy(a=>new { a.Day,a.App }).Where(g=>g.Sum(a=>a.Seconds)<MinimumSeconds).SelectMany(g=>g).ToList();
+            var shortApps=state.Activities.GroupBy(a=>new { a.Day,a.App }).Where(g=>g.Sum(a=>a.Seconds)<LegacyMinimumSeconds).SelectMany(g=>g).ToList();
             int removed=state.Activities.RemoveAll(a=>shortApps.Contains(a));
             state.AppVisitFilterVersion=1;
             return removed;
