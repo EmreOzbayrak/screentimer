@@ -5,6 +5,9 @@ $sourceExe = Join-Path $source 'ScreenTime.exe'
 if (-not (Test-Path -LiteralPath $sourceExe)) { throw 'Build first and supply -SourceDirectory dist, or run install.ps1 from an extracted Windows release.' }
 $destination = Join-Path $env:LOCALAPPDATA 'ScreenTime\app'
 $installedExe = Join-Path $destination 'ScreenTime.exe'
+# Refuse launcher-private AppData before stopping or overwriting the real app.
+$probe = Start-Process -FilePath $sourceExe -ArgumentList '--check-storage' -WindowStyle Hidden -PassThru
+if (-not $probe.WaitForExit(10000) -or $probe.ExitCode -ne 0) { throw 'Windows redirected the installation folder. Run this installer from a normal Windows PowerShell window opened from the Start menu, not from a packaged launcher. Existing history and installation were not changed.' }
 # Ask the single-instance app to save and exit, without terminating other processes.
 $stopper = Start-Process -FilePath $sourceExe -ArgumentList '--quit' -WindowStyle Hidden -PassThru
 if (-not $stopper.WaitForExit(10000)) { throw 'Could not request ScreenTime to exit.' }

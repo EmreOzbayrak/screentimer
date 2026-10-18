@@ -100,13 +100,10 @@ namespace ScreenTime {
                 };
                 var captured=slice;
                 segment.MouseEnter+=(s,e)=> {
-                    Find<TextBlock>("TotalTime").Text=Logic.Duration(captured.Seconds);
-                    Find<TextBlock>("ChartCaption").Text=viewMode==1?Friendly(captured.Name):captured.Name;
                     segment.StrokeThickness=24;
                 };
                 segment.MouseLeave+=(s,e)=> {
-                    Find<TextBlock>("TotalTime").Text=Logic.Duration(total);
-                    Find<TextBlock>("ChartCaption").Text="total active time"; segment.StrokeThickness=20;
+                    segment.StrokeThickness=20;
                 };
                 segment.MouseLeftButtonUp+=(s,e)=> {
                     var list=Find<ListBox>("ActivityList");
@@ -120,6 +117,7 @@ namespace ScreenTime {
             Find<ContentControl>("EditorContent").Content=panel;
             Find<Grid>("EditorPanel").Visibility=Visibility.Visible;
             Find<ScrollViewer>("MainScroll").Visibility=Visibility.Collapsed;
+            Find<ScrollViewer>("EditorScroll").ScrollToTop();
         }
         private void CloseEditor() {
             if(detailApp!=null && showingBackground) { detailApp=null; ShowBackground(); return; }

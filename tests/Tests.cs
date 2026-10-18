@@ -16,7 +16,14 @@ class Tests {
     static void Check(bool condition,string name) { if(!condition) throw new Exception(name); count++; Console.WriteLine("PASS "+name); }
     [STAThread] static int Main(string[] args) {
         try {
+            if(args.Length==2 && args[0]=="--crash-save-worker") { CrashSaveWorker(args[1]); return 0; }
             if(args.Contains("--live")) { Live(); return 0; }
+            Check(!UserStorage.IsRedirected(@"C:\Fixture\AppData\Local\ScreenTime",@"\\?\C:\Fixture\AppData\Local\ScreenTime"),"Normal Windows history path is accepted");
+            Check(UserStorage.IsRedirected(@"C:\Fixture\AppData\Local\ScreenTime",@"\\?\C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime"),"Launcher-private history redirection is detected without package identity");
+            Check(!UserStorage.IsRedirected(@"C:\Fixture\AppData\Local\ScreenTime",@"D:\UserData\ScreenTime"),"Ordinary relocated folders are not mistaken for launcher-private storage");
+            Check(UserStorage.IsRedirected(@"C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime",@"C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime"),"Directly returned private package folder is rejected too");
+            Check(UserStorage.IsRedirected(@"D:\UserData\ScreenTime",@"D:\UserData\Packages\Launcher_123\LocalCache\Local\ScreenTime"),"Redirection is detected when Windows user data is on another drive");
+            CrashSaveCheck();
             NewFeatures();
             AuditChecks();
             MinimumLogChecks();
@@ -160,6 +167,41 @@ class Tests {
         if(!full.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)) throw new Exception("Unsafe test cleanup path");
         Directory.Delete(full,true);
     }
+    static void CrashSaveWorker(string directory) {
+        var state=Fixture(); state.IdleSeconds=0; state.MinimumLogSeconds=50;
+        for(int i=0;i<256;i++) state.Activities.Add(new Activity {App="fixture",Day="2026-10-17",Title=new String('x',2048)+i,Domain="",Category="Work",Seconds=3600});
+        var store=new Store(Path.Combine(directory,"activity.json")); store.Save(state);
+        Console.WriteLine("READY"); Console.Out.Flush();
+        var clock=Stopwatch.StartNew();
+        while(clock.Elapsed<TimeSpan.FromSeconds(15)) { state.Activities[0].Seconds++; store.Save(state); }
+    }
+    static void CrashSaveCheck() {
+        string directory=Path.Combine(Path.GetTempPath(),"ScreenTime-tests-"+Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
+        Process worker=null;
+        try {
+            worker=Process.Start(new ProcessStartInfo(System.Reflection.Assembly.GetExecutingAssembly().Location) {
+                Arguments="--crash-save-worker \""+directory+"\"",UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true
+            });
+            var ready=worker.StandardOutput.ReadLineAsync();
+            Check(ready.Wait(10000) && ready.Result=="READY","Disposable writer committed a baseline before crash testing");
+            string path=Path.Combine(directory,"activity.json");
+            var deadline=Stopwatch.StartNew();
+            bool sawPendingSave=false;
+            while(deadline.Elapsed<TimeSpan.FromSeconds(3) && !worker.HasExited) {
+                if(File.Exists(path+".tmp")) { sawPendingSave=true; break; }
+                Thread.Sleep(1);
+            }
+            Check(sawPendingSave,"Crash test reached an in-progress temporary save");
+            worker.Kill(); worker.WaitForExit();
+            var restored=new Store(path).Load();
+            Check(restored.Activities.Count==256 && restored.Activities.All(a=>a.Seconds>=3600),"Abrupt writer termination preserves every previously committed history row");
+            Check(restored.IdleSeconds==0 && restored.MinimumLogSeconds==50,"Abrupt writer termination preserves both timing preferences");
+            Check(Store.IsEncrypted(File.ReadAllBytes(path)),"Recovered crash-test history remains encrypted");
+        } finally {
+            if(worker!=null) { if(!worker.HasExited) { worker.Kill(); worker.WaitForExit(); } worker.Dispose(); }
+            RemoveTestDirectory(directory);
+        }
+    }
     static void AuditChecks() {
         var availability=new TrackingAvailability();
         Check(!availability.Apply(PowerModes.StatusChange) && !availability.Blocked,"Battery status changes do not interrupt recording or sessions");
@@ -198,6 +240,15 @@ class Tests {
         string directory=Path.Combine(Path.GetTempPath(),"ScreenTime-tests-"+Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
         try {
             var state=Fixture(); state.IdleSeconds=0;
+            string current=typeof(State).Assembly.Location,copy=Path.Combine(directory,"startup.exe");
+            Check(!StartupManager.UpToDate(current,copy),"Missing startup executable requires installation");
+            File.Copy(current,copy);
+            Check(StartupManager.UpToDate(current,copy),"Matching standalone and installed builds need no replacement");
+            using(var changed=File.Open(copy,FileMode.Append)) changed.WriteByte(0);
+            Check(!StartupManager.UpToDate(current,copy),"A different installed build is repaired even when its version matches");
+            string older=System.Reflection.Assembly.GetExecutingAssembly().Location;
+            Check(!StartupManager.UpToDate(current,older),"An older installed version requires the downloaded update");
+            Check(StartupManager.UpToDate(older,current),"An older download cannot downgrade a newer startup installation");
             state.Activities.Add(new Activity {App="code",Day="2026-10-14",Seconds=600,Category="Work"});
             var store=new Store(Path.Combine(directory,"activity.json")); store.Save(state); store.Save(state);
             string checkpoint=Directory.GetFiles(store.SnapshotDirectory).Single();

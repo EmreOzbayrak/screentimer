@@ -43,7 +43,7 @@ namespace ScreenTime {
         private bool locked { get { return availability.Blocked; } }
         private Snapshot previous;
         private Stopwatch elapsed=Stopwatch.StartNew();
-        private DateTime lastSave=DateTime.UtcNow;
+        private Stopwatch saveClock=Stopwatch.StartNew();
         private string lastError;
         private int refreshTick;
         private int viewMode=1, goalIndex;
@@ -55,6 +55,10 @@ namespace ScreenTime {
         private static EventWaitHandle stop;
         private readonly Dictionary<string,string> colors=new Dictionary<string,string> { {"Work","#4CC2FF"},{"Education","#80D5AA"},{"Fun","#F4BA76"},{"Social","#C5A2EF"},{"Other","#A5ADB8"} };
         [STAThread] public static void Main(string[] args) {
+            if(args.Contains("--check-storage")) {
+                try { UserStorage.Verify(); } catch { Environment.ExitCode=1; }
+                return;
+            }
             bool first;
             string scope=args.Contains("--smoke-test")?".Smoke":"";
             mutex=new Mutex(true,"Local\\ScreenTime.Desktop.v1"+scope,out first);
@@ -76,7 +80,8 @@ namespace ScreenTime {
         private static Brush Brush(string hex) { return (Brush)new BrushConverter().ConvertFromString(hex); }
         private void Run(string[] args) {
             smokeMode=args.Contains("--smoke-test");
-            store=new Store(args.Contains("--smoke-test") ? Path.Combine(Path.GetTempPath(),"ScreenTime-smoke","activity.json") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"ScreenTime","activity.json"));
+            if(!smokeMode) UserStorage.Verify();
+            store=new Store(smokeMode ? Path.Combine(Path.GetTempPath(),"ScreenTime-smoke","activity.json") : Path.Combine(UserStorage.DirectoryPath,"activity.json"));
             state=store.Load();
             string startupWarning=null;
             if(!smokeMode) try {
@@ -137,12 +142,14 @@ namespace ScreenTime {
             tray.MouseClick+=(s,e)=>{ if(e.Button==Forms.MouseButtons.Left) { if(window.IsVisible) window.Hide(); else Show(); } };
             SystemEvents.SessionSwitch+=SessionSwitch;
             SystemEvents.PowerModeChanged+=PowerChanged;
-            SystemEvents.SessionEnding+=SessionEnding;
+            Application.Current.SessionEnding+=SessionEnding;
+            Application.Current.Exit+=ApplicationExit;
             timer=new DispatcherTimer { Interval=TimeSpan.FromSeconds(1) };
             timer.Tick+=(s,e)=>Tick(); timer.Start();
             if(store.Warning!=null) Notice(store.Warning);
             if(startupWarning!=null) Notice(startupWarning);
-            if(migrateVisits) { Save(); if(lastError==null) Save(); }
+            Save();
+            if(migrateVisits && lastError==null) Save();
             Refresh();
             if(!args.Contains("--background")) Show();
             if(args.Contains("--smoke-test")) {
@@ -174,6 +181,10 @@ namespace ScreenTime {
                         if(selectedDate!=DateTime.Today.AddDays(-1)) throw new Exception("Calendar selection did not update history.");
                         datePicker.IsDropDownOpen=false; datePicker.SelectedDate=DateTime.Today;
                         SetView(0); window.UpdateLayout(); RenderPreview("preview-categories.png");
+                        string chartTotal=Find<TextBlock>("TotalTime").Text;
+                        var chartSegment=Find<Canvas>("Donut").Children.OfType<System.Windows.Shapes.Path>().Skip(1).First();
+                        chartSegment.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice,0) { RoutedEvent=UIElement.MouseEnterEvent });
+                        if(Find<TextBlock>("TotalTime").Text!=chartTotal) throw new Exception("Hovering a chart segment changed the period total.");
                         SetView(2); window.UpdateLayout(); RenderPreview("preview-pages.png");
                         Find<ListBox>("ActivityList").SelectedIndex=0; window.UpdateLayout(); RenderPreview("preview-edit-category.png");
                         Settings(); window.UpdateLayout(); RenderPreview("preview-settings.png");
@@ -184,6 +195,33 @@ namespace ScreenTime {
                         settingsPanel.Children.OfType<Button>().First(b=>(string)b.Content=="Save preferences").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         if(state.IdleSeconds!=0 || !state.Excluded.Contains("Example") || store.Load().IdleSeconds!=0) throw new Exception("Settings UI did not save zero timeout and uppercase exclusions.");
                         if(state.MinimumLogSeconds!=25 || store.Load().MinimumLogSeconds!=25) throw new Exception("Settings UI did not save the custom minimum logging time.");
+                        Settings(); window.UpdateLayout();
+                        settingsPanel=(StackPanel)Find<ContentControl>("EditorContent").Content;
+                        settingsPanel.Children.OfType<TextBox>().First(t=>t.Name=="MinimumLogInput").Text="50";
+                        using(var lockedTemp=new FileStream(store.Path+".tmp",FileMode.Create,FileAccess.ReadWrite,FileShare.None)) {
+                            settingsPanel.Children.OfType<Button>().First(b=>(string)b.Content=="Save preferences").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                            if(Find<Grid>("EditorPanel").Visibility!=Visibility.Visible || String.IsNullOrEmpty(settingsPanel.Children.OfType<TextBlock>().First(t=>t.Name=="PreferencesSaveStatus").Text)) throw new Exception("A failed settings save was hidden.");
+                        }
+                        File.Delete(store.Path+".tmp");
+                        if(store.Load().MinimumLogSeconds!=25) throw new Exception("A failed save changed persisted preferences.");
+                        settingsPanel.Children.OfType<TextBox>().First(t=>t.Name=="MinimumLogInput").Text="25";
+                        settingsPanel.Children.OfType<Button>().First(b=>(string)b.Content=="Save preferences").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        if(Find<Grid>("EditorPanel").Visibility!=Visibility.Collapsed || store.Load().MinimumLogSeconds!=25) throw new Exception("Preferences could not be saved after retry.");
+                        Settings(); window.UpdateLayout();
+                        settingsPanel=(StackPanel)Find<ContentControl>("EditorContent").Content;
+                        if(settingsPanel.Children.OfType<TextBox>().First(t=>t.Name=="MinimumLogInput").Text!="25" || settingsPanel.Children.OfType<TextBox>().First(t=>t.Name=="IdleTimeoutInput").Text!="0") throw new Exception("Reopened settings did not show saved values.");
+                        Find<ScrollViewer>("EditorScroll").ScrollToBottom(); window.UpdateLayout();
+                        CloseEditor(); Settings(); window.UpdateLayout();
+                        if(Find<ScrollViewer>("EditorScroll").VerticalOffset!=0) throw new Exception("Settings reopened below the timing controls.");
+                        CloseEditor();
+                        foreach(var reason in new[]{ReasonSessionEnding.Logoff,ReasonSessionEnding.Shutdown}) {
+                            state.Activities[0].Seconds+=60;
+                            var ending=(SessionEndingCancelEventArgs)Activator.CreateInstance(typeof(SessionEndingCancelEventArgs),BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,new object[]{reason},null);
+                            typeof(Application).GetMethod("OnSessionEnding",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(Application.Current,new object[]{ending});
+                            var saved=store.Load();
+                            if(saved.Activities[0].Seconds!=state.Activities[0].Seconds || saved.IdleSeconds!=0 || saved.MinimumLogSeconds!=25) throw new Exception("Windows "+reason+" event did not save current history and preferences.");
+                        }
+                        state.Activities[0].Seconds-=120;
                         state.Excluded.Clear();
                         state.Goals.Clear(); EditGoals(); window.UpdateLayout(); RenderPreview("preview-goals.png");
                         var goalsPanel=(StackPanel)Find<ContentControl>("EditorContent").Content;
@@ -309,16 +347,17 @@ namespace ScreenTime {
             previous=current;
             PollResources();
             UpdateStatus();
-            if(DateTime.UtcNow-lastSave>TimeSpan.FromSeconds(15)) Save();
+            if(saveClock.Elapsed>=TimeSpan.FromSeconds(15)) Save();
             if(window.IsVisible && ++refreshTick%5==0) Refresh();
         }
-        private void Save() {
+        private void Save() { TrySave(); }
+        private bool TrySave() {
             try {
-                store.Save(state); lastSave=DateTime.UtcNow;
+                store.Save(state); saveClock.Restart();
                 if(lastError!=null && Find<TextBlock>("Notice").Text=="Activity could not be saved: "+lastError) Find<TextBlock>("Notice").Visibility=Visibility.Collapsed;
-                lastError=null;
+                lastError=null; return true;
             }
-            catch(Exception ex) { if(lastError!=ex.Message) Notice("Activity could not be saved: "+ex.Message); lastError=ex.Message; lastSave=DateTime.UtcNow; }
+            catch(Exception ex) { if(lastError!=ex.Message) Notice("Activity could not be saved: "+ex.Message); lastError=ex.Message; saveClock.Restart(); return false; }
         }
         private void ResetResources() { resourceGeneration++; resources.Reset(); latestResources=null; liveResources.Clear(); nextResourceSample=DateTime.MinValue; }
         private void PollResources() {
@@ -343,10 +382,12 @@ namespace ScreenTime {
             window.Dispatcher.BeginInvoke(new Action(()=> { if(availability.Apply(e.Mode)) ResetObservation(); }));
         }
         private void ResetObservation() { previous=null; tracker.Reset(); visits.Reset(); ResetResources(); elapsed.Restart(); Save(); UpdateStatus(); }
-        private void SessionEnding(object sender,SessionEndingEventArgs e) { window.Dispatcher.Invoke(new Action(Save)); }
+        // WPF raises these on the UI thread, before its dispatcher shuts down.
+        private void SessionEnding(object sender,SessionEndingCancelEventArgs e) { Save(); }
+        private void ApplicationExit(object sender,ExitEventArgs e) { Save(); }
         private void Quit() {
             exiting=true; timer.Stop(); Save();
-            SystemEvents.SessionSwitch-=SessionSwitch; SystemEvents.PowerModeChanged-=PowerChanged; SystemEvents.SessionEnding-=SessionEnding;
+            SystemEvents.SessionSwitch-=SessionSwitch; SystemEvents.PowerModeChanged-=PowerChanged;
             tray.Visible=false; var icon=tray.Icon; tray.Dispose(); icon.Dispose(); window.Close(); Application.Current.Shutdown();
         }
         private void ApplyCategory() {
@@ -366,6 +407,15 @@ namespace ScreenTime {
             showingBackground=false; detailApp=null;
             var panel=new StackPanel { Margin=new Thickness(0,0,8,0) };
             panel.Children.Add(new TextBlock { Text="Settings",FontSize=22,FontWeight=FontWeights.SemiBold });
+            panel.Children.Add(Label("ScreenTime "+Assembly.GetExecutingAssembly().GetName().Version.ToString(3)+" · Changes apply when you save."));
+            panel.Children.Add(Label("Inactivity timeout in seconds · 0 = always count"));
+            var idle=new TextBox { Name="IdleTimeoutInput",Text=state.IdleSeconds.ToString() }; panel.Children.Add(idle);
+            panel.Children.Add(Label("Use 0 to keep counting without mouse or keyboard input. Manual pause, Windows lock and sleep still stop tracking."));
+            panel.Children.Add(Label("Minimum time before logging · seconds"));
+            var minimum=new TextBox { Name="MinimumLogInput",Text=state.MinimumLogSeconds.ToString() }; panel.Children.Add(minimum);
+            panel.Children.Add(Label("Default: 10. Choose 0–3600; 0 means no minimum. Shorter visits are ignored. Once a visit qualifies, its time counts from the start. Applies to apps, browser pages and resource sessions; existing history is kept."));
+            var save=new Button { Content="Save preferences",Background=Brush("#4CC2FF"),Foreground=Brush("#10242E"),Margin=new Thickness(0,12,0,8) }; panel.Children.Add(save);
+            var saveStatus=new TextBlock { Name="PreferencesSaveStatus",TextWrapping=TextWrapping.Wrap,Foreground=Brush("#F0C786"),FontSize=11 }; panel.Children.Add(saveStatus);
             panel.Children.Add(Label("History is encrypted for your Windows account and stays on this PC. Days, weeks and months are kept until you delete them."));
             var titles=Check("Record browser page titles and website names",state.CaptureTitles); panel.Children.Add(titles);
             var privateWindows=Check("Record incognito / private browser windows",state.IncludePrivateWindows); panel.Children.Add(privateWindows);
@@ -374,16 +424,11 @@ namespace ScreenTime {
             panel.Children.Add(Label("Browser resource totals cannot separate private and normal windows. This separate option is off by default."));
             var startup=Check("Start in the tray when I sign in to Windows",state.StartupEnabled); panel.Children.Add(startup);
             panel.Children.Add(Label("Startup uses a stable installed copy in your Windows user folder."));
-            panel.Children.Add(Label("Minimum time before logging · seconds"));
-            var minimum=new TextBox { Name="MinimumLogInput",Text=state.MinimumLogSeconds.ToString() }; panel.Children.Add(minimum);
-            panel.Children.Add(Label("Default: 10. Choose 0–3600; 0 means no minimum. Shorter visits are ignored. Once a visit qualifies, its time counts from the start. Applies to apps, browser pages and resource sessions; existing history is kept."));
-            panel.Children.Add(Label("Inactivity timeout in seconds · 0 = always count"));
-            var idle=new TextBox { Name="IdleTimeoutInput",Text=state.IdleSeconds.ToString() }; panel.Children.Add(idle);
-            panel.Children.Add(Label("Use 0 to keep counting without mouse or keyboard input. Manual pause, Windows lock and sleep still stop tracking."));
             panel.Children.Add(Label("Excluded app process names, separated by commas (for example: chrome, msedge)"));
             var exclusions=new TextBox { Name="ExcludedAppsInput",Text=String.Join(", ",state.Excluded) }; panel.Children.Add(exclusions);
             panel.Children.Add(Label("Data file: "+store.Path));
-            var save=new Button { Content="Save preferences",Background=Brush("#4CC2FF"),Foreground=Brush("#10242E"),Margin=new Thickness(0,17,0,8) }; panel.Children.Add(save);
+            var saveBottom=new Button { Content="Save preferences",Background=Brush("#4CC2FF"),Foreground=Brush("#10242E"),Margin=new Thickness(0,17,0,8) }; panel.Children.Add(saveBottom);
+            saveBottom.Click+=(s,e)=>save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var clear=new Button { Content="Delete recorded history",Foreground=Brush("#F1A0A0"),Margin=new Thickness(0,3,0,0) }; panel.Children.Add(clear);
             save.Click+=(s,e)=> {
                 int seconds, minimumSeconds;
@@ -394,7 +439,9 @@ namespace ScreenTime {
                 state.IdleSeconds=seconds; state.MinimumLogSeconds=minimumSeconds; state.CaptureTitles=titles.IsChecked==true;
                 state.IncludePrivateWindows=privateWindows.IsChecked==true; state.CollectBrowserResources=browserResources.IsChecked==true; state.PrivacyVersion=1;
                 state.Excluded=Logic.ParseExclusions(exclusions.Text);
-                previous=null; tracker.Reset(); visits.Reset(); ResetResources(); Save(); CloseEditor();
+                if(!TrySave()) { saveStatus.Text="Preferences could not be saved. Please retry. "+lastError; saveStatus.BringIntoView(); return; }
+                previous=null; tracker.Reset(); visits.Reset(); ResetResources(); CloseEditor();
+                Notice("Preferences saved · inactivity: "+(seconds==0?"always count":seconds+"s")+" · minimum: "+minimumSeconds+"s.");
             };
             clear.Click+=(s,e)=> {
                 if(Prompt("Delete all activity, sessions, resource history and backups? Your preferences and goals will remain.","Delete history",MessageBoxButton.YesNo)!=MessageBoxResult.Yes) return;

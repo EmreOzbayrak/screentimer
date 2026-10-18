@@ -26,7 +26,13 @@ In Settings, set the inactivity timeout to **0** to keep counting without mouse 
 
 Choose **Day**, **Week** or **Month**, then use the arrows or calendar to revisit history. Weeks run Monday–Sunday; months follow the calendar. **Today** returns to the current period. Changing the period never deletes records, and there is no rolling 24-hour/7-day expiration. History survives app updates and Windows restarts because it lives outside the installed app folder.
 
-History saves every 15 seconds, with a rolling backup and up to 30 encrypted daily recovery snapshots. If the main file becomes unreadable, the app attempts recovery and reports it. These backups cannot reconstruct activity that was never recorded. The tray status reports save failures instead of silently appearing to track normally.
+History saves every 15 seconds, at normal app exit, and when Windows reports shutdown, logoff, sleep or lock. The autosave timer uses elapsed time so changing the PC clock cannot delay saving. A rolling backup and up to 30 encrypted daily recovery snapshots help recover an unreadable main file. These backups cannot reconstruct activity that was never recorded. Abrupt power loss or forced termination can lose time since the last successful save (normally about 15 seconds). The tray status reports save failures instead of silently appearing to track normally.
+
+Both timing settings appear at the top of Settings. Click **Save preferences** to apply them; a confirmation shows the saved values. A failed save keeps Settings open with an error. The version number is also shown there. The ring's center always shows the selected period's total; hover over a segment to see its individual duration in a tooltip.
+
+When startup is enabled, opening a newer standalone download updates the installed startup copy too. Quit the running app from its tray menu before opening the new EXE. Opening an older download does not replace a newer installed build.
+
+Some packaged launchers redirect Windows user folders into private storage. ScreenTime and its installer detect redirected files and directly returned package-private folders, and stop before changing history or startup. The normal location is `%LOCALAPPDATA%\ScreenTime\activity.json`, outside Codex and outside the executable's `app` subfolder. Open ScreenTime from the Windows Start menu or File Explorer, or run the installer in a normal PowerShell window, to use the same history and preferences as Windows startup.
 
 The ring and legend show active time with matching colors for Work, Education, Fun, Social and Other. Switch between Categories, Apps and Pages. Click an app to see ranked websites, resource averages and its sessions. Category overrides apply to future and existing matching activity. The goal card estimates when a project could finish given a daily time commitment; dates are projections, not promises.
 
