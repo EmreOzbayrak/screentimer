@@ -31,6 +31,8 @@ namespace ScreenTime {
             var rows=state.Activities.Where(a=>InRange(a.Day)).ToList();
             double total=rows.Sum(a=>a.Seconds);
             Find<TextBlock>("DateLabel").Text=RangeName();
+            Find<Button>("CalendarReturnButton").Visibility=calendarReturnMonth.HasValue?Visibility.Visible:Visibility.Collapsed;
+            if(calendarReturnMonth.HasValue) Find<Button>("CalendarReturnButton").Content="‹  Calendar · "+calendarReturnMonth.Value.ToString("MMMM yyyy");
             Find<TextBlock>("TotalTime").Text=Logic.Duration(total);
             Find<TextBlock>("ChartCaption").Text=range==0?"day's active time":range==1?"week's active time":"month's active time";
             var legend=Find<StackPanel>("CategoryLegend"); legend.Children.Clear();
@@ -85,6 +87,7 @@ namespace ScreenTime {
             }
             if(showingBackground && detailApp==null) ShowBackground(true);
             if(detailApp!=null) ShowAppDetails(detailApp,true);
+            if(showingCalendar) RefreshCalendar();
         }
         private void DrawDonut(List<ActivitySlice> slices,double total) {
             var canvas=Find<Canvas>("Donut"); canvas.Children.Clear();
@@ -114,12 +117,14 @@ namespace ScreenTime {
             }
         }
         private void OpenEditor(StackPanel panel) {
+            showingCalendar=false;
             Find<ContentControl>("EditorContent").Content=panel;
             Find<Grid>("EditorPanel").Visibility=Visibility.Visible;
             Find<ScrollViewer>("MainScroll").Visibility=Visibility.Collapsed;
             Find<ScrollViewer>("EditorScroll").ScrollToTop();
         }
         private void CloseEditor() {
+            showingCalendar=false;
             if(detailApp!=null && showingBackground) { detailApp=null; ShowBackground(); return; }
             detailApp=null; showingBackground=false;
             Find<ListBox>("ActivityList").SelectedItem=null;

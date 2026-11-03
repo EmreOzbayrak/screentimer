@@ -25,6 +25,7 @@ class Tests {
             Check(UserStorage.IsRedirected(@"D:\UserData\ScreenTime",@"D:\UserData\Packages\Launcher_123\LocalCache\Local\ScreenTime"),"Redirection is detected when Windows user data is on another drive");
             CrashSaveCheck();
             NewFeatures();
+            CalendarChecks();
             AuditChecks();
             MinimumLogChecks();
             Check(!Tracker.IsIdle(0,UInt32.MaxValue,true) && !Tracker.IsIdle(0,0,false),"Zero timeout disables inactivity detection even without input information");
@@ -273,6 +274,29 @@ class Tests {
             retained.Save(state);
             Check(Directory.GetFiles(retained.SnapshotDirectory).Length==30 && retained.Load().Activities[0].Day=="2026-10-14","Thirty recovery snapshots bound backup size without trimming activity history");
         } finally { RemoveTestDirectory(directory); }
+    }
+    static void CalendarChecks() {
+        var rows=new List<Activity> {
+            new Activity { Day="2024-02-01",App="code",Category="Work",Seconds=3600 },
+            new Activity { Day="2024-02-01",App="chrome",Category="Education",Seconds=1800 },
+            new Activity { Day="2024-02-29",App="game",Category="Fun",Seconds=7200 },
+            new Activity { Day="2024-03-01",App="code",Category="Work",Seconds=300 },
+            new Activity { Day="2023-12-31",App="code",Category="Work",Seconds=900 },
+            new Activity { Day="not-a-date",App="code",Seconds=100 },
+            new Activity { Day="2024-02-01",App="code",Seconds=-100 },
+            new Activity { Day="2024-02-01",App="code",Seconds=Double.NaN },
+            new Activity { Day="2024-02-01",App="code",Seconds=Double.PositiveInfinity }, null
+        };
+        var calendar=CalendarOverview.Create(rows,new DateTime(2024,2,17));
+        Check(calendar.Days.Count==29 && calendar.MondayOffset==3 && calendar.Month==new DateTime(2024,2,1),"Calendar lays out leap February with Monday-first weekday alignment");
+        Check(calendar.Days[0].Seconds==5400 && calendar.Days[28].Seconds==7200 && calendar.Seconds==12600,"Daily squares and month totals combine app/page time without crossing month boundaries");
+        Check(calendar.Days[0].Categories["Work"]==3600 && calendar.Days[0].Categories["Education"]==1800,"Calendar preserves each day's category color proportions");
+        Check(calendar.Days[1].Seconds==0 && calendar.TrackedDays==2,"Missing days stay empty and do not inflate tracked-day counts");
+        Check(calendar.History.Select(m=>m.Month).SequenceEqual(new[]{new DateTime(2024,3,1),new DateTime(2024,2,1),new DateTime(2023,12,1)}) && calendar.History.Sum(m=>m.Seconds)==13800,"Saved months include past years in newest-first order and ignore invalid durations");
+        var empty=CalendarOverview.Create(rows,new DateTime(2026,11,1));
+        Check(empty.MondayOffset==6 && empty.Days.Count==30 && empty.Seconds==0,"Six-row months and empty historical periods remain valid");
+        Check(CalendarOverview.Create(rows,DateTime.MinValue).Days.Count==31 && CalendarOverview.Create(rows,DateTime.MaxValue).Days.Count==31,"Calendar supports first and final months without date overflow");
+        Check(rows[0].Seconds==3600 && rows.Count==10,"Browsing calendar history does not alter saved activity");
     }
     static void NewFeatures() {
         var fresh=new State();

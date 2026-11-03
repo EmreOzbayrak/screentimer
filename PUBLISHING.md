@@ -1,12 +1,12 @@
 # Publishing ScreenTime
 
-The repository uses the MIT license. App version: 0.2.3. This guide covers publishing the source and Windows release, including creating a new remote when needed.
+The repository uses the MIT license. App version: 0.2.4. This guide covers publishing the source and Windows release, including creating a new remote when needed.
 
 ## Upload through GitHub's website
 
-Extract `artifacts/ScreenTime-0.2.3-source.zip` into a clean folder. Upload its contents at the repository root, including `.github`, `.gitignore` and `.gitattributes`. Do not upload the entire development folder or any file from your Windows ScreenTime data folder. The source archive contains no `.git` history or Git author email.
+Extract `artifacts/ScreenTime-0.2.4-source.zip` into a clean folder. Upload its contents at the repository root, including `.github`, `.gitignore` and `.gitattributes`. Do not upload the entire development folder or any file from your Windows ScreenTime data folder. The source archive contains no `.git` history or Git author email.
 
-After the Windows build workflow passes, create a GitHub release for `v0.2.3` and attach `ScreenTime.exe`, `ScreenTime-0.2.3-windows.zip`, `ScreenTime-0.2.3-source.zip` and `SHA256SUMS.txt` from `artifacts`. Describe an unsigned release as unsigned. End users can download and run `ScreenTime.exe` directly. The Windows archive includes an optional installation script; the source archive is for developers.
+After the Windows build workflow passes, create a GitHub release for `v0.2.4` and attach `ScreenTime.exe`, `ScreenTime-0.2.4-windows.zip`, `ScreenTime-0.2.4-source.zip` and `SHA256SUMS.txt` from `artifacts`. Describe an unsigned release as unsigned. End users can download and run `ScreenTime.exe` directly. The Windows archive includes an optional installation script; the source archive is for developers.
 
 ## Publish using Git
 

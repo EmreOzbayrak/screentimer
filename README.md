@@ -22,6 +22,10 @@ Requires Windows 10/11 with .NET Framework 4.8. Private RAM measurements require
 
 ## Calendar history
 
+Open **Calendar & history** in the tray panel for a month grid. Each day square shows its recorded hours and minutes, with a small bar showing category colors. Click a day to inspect that date's apps, websites and categories, then use **Calendar** above the breakdown to return. Empty days show a dash rather than implying that no time was spent on the PC.
+
+The **Month total** card opens the full month's breakdown. Use the month arrows, **This month**, or the **Saved months** list below the grid to browse all recorded months, including past years. These totals describe recorded foreground activity; background runtime remains in **Background apps**. Calendar browsing never changes or deletes history.
+
 In Settings, set the inactivity timeout to **0** to keep counting without mouse or keyboard input. Otherwise choose 30–3600 seconds. Manual pause, Windows lock and sleep still stop tracking; app exclusions and privacy settings still apply.
 
 Choose **Day**, **Week** or **Month**, then use the arrows or calendar to revisit history. Weeks run Monday–Sunday; months follow the calendar. **Today** returns to the current period. Changing the period never deletes records, and there is no rolling 24-hour/7-day expiration. History survives app updates and Windows restarts because it lives outside the installed app folder.

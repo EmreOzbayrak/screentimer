@@ -106,6 +106,8 @@ namespace ScreenTime {
             Click("PagesButton",(s,e)=>SetView(2));
             Click("SettingsButton",(s,e)=>Settings());
             Click("BackgroundButton",(s,e)=>ShowBackground());
+            Click("CalendarButton",(s,e)=>ShowCalendar(selectedDate));
+            Click("CalendarReturnButton",(s,e)=>ShowCalendar(calendarReturnMonth??selectedDate));
             Click("EditGoalsButton",(s,e)=>EditGoals());
             Click("NextGoalButton",(s,e)=>{ goalIndex++; Refresh(); });
             Click("BackButton",(s,e)=>CloseEditor());
@@ -264,6 +266,7 @@ namespace ScreenTime {
                         Find<ComboBox>("RangeBox").SelectedIndex=2;
                         if(!InRange(DateTime.Today.ToString("yyyy-MM-dd"))) throw new Exception("Calendar month selection failed.");
                         Find<ComboBox>("RangeBox").SelectedIndex=0; followToday=true; Refresh();
+                        CalendarSmoke();
                         state.Activities.RemoveRange(1,state.Activities.Count-1); SetView(0); window.UpdateLayout(); RenderPreview("preview-single.png");
                         window.Hide(); Show();
                         if(window.ShowInTaskbar || !window.Topmost || !window.IsVisible) throw new Exception("Tray popup visibility contract failed.");
