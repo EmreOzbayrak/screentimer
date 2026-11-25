@@ -2,6 +2,14 @@
 
 A native Windows tray app for screen time, calendar history and app resource sessions. Click its clock beside sound and Bluetooth to open a compact dark panel with a circular activity chart. No browser dashboard or account is required.
 
+## Screenshots
+
+| Activity dashboard | Calendar history | App resource usage |
+| --- | --- | --- |
+| <img src="https://raw.githubusercontent.com/EmreOzbayrak/screentimer/main/docs/screenshots/activity-dashboard.png" width="275" alt="Daily screen time with a category chart and most-used apps"> | <img src="https://raw.githubusercontent.com/EmreOzbayrak/screentimer/main/docs/screenshots/calendar-history.png" width="275" alt="Monthly calendar with daily and monthly screen-time totals"> | <img src="https://raw.githubusercontent.com/EmreOzbayrak/screentimer/main/docs/screenshots/app-resources.png" width="275" alt="App details with historical CPU, RAM and GPU measurements"> |
+
+The screenshots use sample activity.
+
 ## Install and run
 
 Download [ScreenTime.exe](https://github.com/EmreOzbayrak/screentimer/releases/latest/download/ScreenTime.exe) from the [latest release](https://github.com/EmreOzbayrak/screentimer/releases/latest), then double-click it. No extraction or commands are needed. Look for its clock icon beside the Windows clock or under **^ hidden icons**. Enable **Start with Windows** in Settings if you want it to launch when you sign in.

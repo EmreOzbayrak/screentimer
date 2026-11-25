@@ -18,12 +18,18 @@ $patterns = @{
     'Local Windows profile path' = '(?i)[A-Z]:[\\/]+Users[\\/]+[^\\/\s"'']+'
 }
 $findings = @()
+$publicScreenshots = @(
+    'docs/screenshots/activity-dashboard.png'
+    'docs/screenshots/calendar-history.png'
+    'docs/screenshots/app-resources.png'
+)
 foreach ($file in ($Files | Sort-Object -Unique)) {
     $absolute = if ([IO.Path]::IsPathRooted($file)) { $file } else { Join-Path $root $file }
     if ($file -match '(?i)(^|[\\/])(?:\.env(?:\..*)?|activity\.json.*|[^\\/]*\.(?:pfx|p12|pem|key|dmp)|[^\\/]*(?:credentials|secrets)\.json)$' -and $file -notmatch '\.env\.example$') {
         $findings += "Private file name: $file"
         continue
     }
+    if ($publicScreenshots -ccontains $file) { continue }
     if ([IO.Path]::GetExtension($file) -match '^\.(exe|dll|zip|png|jpg|pdb)$') { $findings += "Unexpected binary in source: $file"; continue }
     $versions = @()
     if (Test-Path -LiteralPath $absolute -PathType Leaf) { $versions += [IO.File]::ReadAllText($absolute) }
