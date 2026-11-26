@@ -1,8 +1,8 @@
 ﻿using System;
-using System.IO;
-using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading;
@@ -10,399 +10,1424 @@ using System.Threading.Tasks;
 using Microsoft.Win32;
 using ScreenTime;
 
-class Tests {
+class Tests
+{
     static int count;
-    static State Fixture() { return new State { CaptureTitles=true, IncludePrivateWindows=true, CollectBrowserResources=true, PrivacyVersion=1 }; }
-    static void Check(bool condition,string name) { if(!condition) throw new Exception(name); count++; Console.WriteLine("PASS "+name); }
-    [STAThread] static int Main(string[] args) {
-        try {
-            if(args.Length==2 && args[0]=="--crash-save-worker") { CrashSaveWorker(args[1]); return 0; }
-            if(args.Contains("--live")) { Live(); return 0; }
-            Check(!UserStorage.IsRedirected(@"C:\Fixture\AppData\Local\ScreenTime",@"\\?\C:\Fixture\AppData\Local\ScreenTime"),"Normal Windows history path is accepted");
-            Check(UserStorage.IsRedirected(@"C:\Fixture\AppData\Local\ScreenTime",@"\\?\C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime"),"Launcher-private history redirection is detected without package identity");
-            Check(!UserStorage.IsRedirected(@"C:\Fixture\AppData\Local\ScreenTime",@"D:\UserData\ScreenTime"),"Ordinary relocated folders are not mistaken for launcher-private storage");
-            Check(UserStorage.IsRedirected(@"C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime",@"C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime"),"Directly returned private package folder is rejected too");
-            Check(UserStorage.IsRedirected(@"D:\UserData\ScreenTime",@"D:\UserData\Packages\Launcher_123\LocalCache\Local\ScreenTime"),"Redirection is detected when Windows user data is on another drive");
+
+    static State Fixture()
+    {
+        return new State
+        {
+            CaptureTitles = true,
+            IncludePrivateWindows = true,
+            CollectBrowserResources = true,
+            PrivacyVersion = 1,
+        };
+    }
+
+    static void Check(bool condition, string name)
+    {
+        if (!condition)
+            throw new Exception(name);
+        count++;
+        Console.WriteLine("PASS " + name);
+    }
+
+    [STAThread]
+    static int Main(string[] args)
+    {
+        try
+        {
+            if (args.Length == 2 && args[0] == "--crash-save-worker")
+            {
+                CrashSaveWorker(args[1]);
+                return 0;
+            }
+            if (args.Contains("--live"))
+            {
+                Live();
+                return 0;
+            }
+            Check(
+                !UserStorage.IsRedirected(
+                    @"C:\Fixture\AppData\Local\ScreenTime",
+                    @"\\?\C:\Fixture\AppData\Local\ScreenTime"
+                ),
+                "Normal Windows history path is accepted"
+            );
+            Check(
+                UserStorage.IsRedirected(
+                    @"C:\Fixture\AppData\Local\ScreenTime",
+                    @"\\?\C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime"
+                ),
+                "Launcher-private history redirection is detected without package identity"
+            );
+            Check(
+                !UserStorage.IsRedirected(
+                    @"C:\Fixture\AppData\Local\ScreenTime",
+                    @"D:\UserData\ScreenTime"
+                ),
+                "Ordinary relocated folders are not mistaken for launcher-private storage"
+            );
+            Check(
+                UserStorage.IsRedirected(
+                    @"C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime",
+                    @"C:\Fixture\AppData\Local\Packages\Launcher_123\LocalCache\Local\ScreenTime"
+                ),
+                "Directly returned private package folder is rejected too"
+            );
+            Check(
+                UserStorage.IsRedirected(
+                    @"D:\UserData\ScreenTime",
+                    @"D:\UserData\Packages\Launcher_123\LocalCache\Local\ScreenTime"
+                ),
+                "Redirection is detected when Windows user data is on another drive"
+            );
             CrashSaveCheck();
             NewFeatures();
             CalendarChecks();
             AuditChecks();
             MinimumLogChecks();
-            Check(!Tracker.IsIdle(0,UInt32.MaxValue,true) && !Tracker.IsIdle(0,0,false),"Zero timeout disables inactivity detection even without input information");
-            Check(!Tracker.IsIdle(60,59999,true) && Tracker.IsIdle(60,60000,true) && Tracker.IsIdle(60,0,false),"Enabled inactivity timeout keeps its boundary and unavailable-input behavior");
-            var state=Fixture();
-            Check(Logic.Classify(state,"chrome","Python tutorial - YouTube","youtube.com")=="Education","Education intent takes priority over entertainment site");
-            Check(Logic.Classify(state,"chrome","Video","youtube.com")=="Fun","Entertainment categorization");
-            state.Rules[Logic.RuleKey("chrome","youtube.com")]="Work";
-            Check(Logic.Classify(state,"chrome","Video","youtube.com")=="Work","User rule wins");
-            var midnight=new DateTime(2026,10,13,0,0,1);
-            Logic.Record(state,midnight,2,"chrome","Video","youtube.com");
-            Check(state.Activities.Count==2 && state.Activities.All(a=>a.Seconds==1),"Midnight splits activity between dates");
-            Logic.Record(state,midnight.AddSeconds(1),1,"chrome","Video","youtube.com");
-            Check(state.Activities.Sum(a=>a.Seconds)==3,"Repeated activity aggregates");
-            Logic.Record(state,midnight,100,"chrome","Video","youtube.com");
-            Check(state.Activities.Sum(a=>a.Seconds)==3,"Suspend gaps are never counted");
-            state.Excluded.Add("CHROME"); Logic.Record(state,midnight,1,"chrome","Video","youtube.com");
-            Check(state.Activities.Sum(a=>a.Seconds)==3,"Exclusions are case insensitive");
-            state.CaptureTitles=false; Logic.Record(state,midnight,1,"firefox","Private title","private.example");
-            Check(state.Activities.Last().Title=="" && state.Activities.Last().Domain=="","App-only mode strips page data before storage");
-            Check(Logic.Project(new DateTime(2026,10,12),20,30)==new DateTime(2026,11,20),"Goal completion includes today's session");
-            Check(Logic.Project(new DateTime(2026,10,12),0.5,30)==new DateTime(2026,10,12),"One-session goal completes today");
-            Check(Logic.Duration(3660)=="1h 1m","Duration formatting");
-            var filtered=Fixture(); var recorder=new VisitRecorder();
-            var page=new Snapshot { App="chrome",Title="A page",Domain="example.com",Handle=new IntPtr(1) };
-            var stamp=new DateTime(2026,10,12,12,0,0);
-            for(int i=1;i<=9;i++) recorder.Add(filtered,stamp.AddSeconds(i),1,page);
-            Check(filtered.Activities.Count==0,"Nine-second page visit never enters saved history");
-            recorder.Add(filtered,stamp.AddSeconds(10),1,page);
-            Check(filtered.Activities.Single().Seconds==10,"Ten-second visit includes all initial seconds");
-            recorder.Add(filtered,stamp.AddSeconds(11),1,page);
-            Check(filtered.Activities.Single().Seconds==11,"Qualified visits keep accumulating");
-            recorder.Reset(); recorder.Add(filtered,stamp.AddSeconds(12),1,page); recorder.Reset();
-            Check(filtered.Activities.Single().Seconds==11,"Brief return to an already recorded page is still discarded");
-            filtered=Fixture(); recorder=new VisitRecorder();
-            for(int i=0;i<3;i++) { recorder.Add(filtered,stamp.AddSeconds(i*5+4),4,page); recorder.Reset(); }
-            Check(filtered.Activities.Count==0,"Separate brief visits do not combine to meet the threshold");
-            recorder.Add(filtered,stamp.AddSeconds(20),9,page);
-            recorder.Add(filtered,stamp.AddSeconds(21),1,new Snapshot {App="chrome",Title="Another page",Domain="example.com",Handle=new IntPtr(1)});
-            Check(filtered.Activities.Count==0,"Changing pages on the same website resets the threshold");
-            recorder.Reset();
-            recorder.Add(filtered,stamp.AddSeconds(30),5,new Snapshot {App="chrome",Title="A page",Handle=new IntPtr(1)});
-            recorder.Add(filtered,stamp.AddSeconds(35),5,page);
-            Check(filtered.Activities.Single().Seconds==10 && filtered.Activities[0].Domain=="example.com","Late hostname discovery preserves and combines the pending visit");
-            filtered=Fixture(); recorder=new VisitRecorder();
-            recorder.Add(filtered,midnight.AddSeconds(-2),5,page); recorder.Add(filtered,midnight.AddSeconds(3),5,page);
-            Check(filtered.Activities.Count==2 && filtered.Activities.Sum(a=>a.Seconds)==10,"Qualified visit keeps its midnight split");
-            filtered.BrowserVisitFilterVersion=1; VisitRecorder.CleanLegacyHistory(filtered);
-            Check(filtered.Activities.Count==2,"Future startup preserves short midnight pieces of a qualified visit");
-            filtered=Fixture(); recorder=new VisitRecorder();
-            recorder.Add(filtered,stamp,9,new Snapshot {App="explorer",Title="Folder A"});
-            Check(filtered.Activities.Count==0,"Desktop apps also require ten continuous seconds");
-            recorder.Add(filtered,stamp.AddSeconds(1),1,new Snapshot {App="explorer",Title="Folder B"});
-            Check(filtered.Activities.Single().Seconds==10,"Changing folders within one app preserves its minimum threshold");
-            filtered=new State {CaptureTitles=false,IncludePrivateWindows=true,PrivacyVersion=1}; recorder=new VisitRecorder(); recorder.Add(filtered,stamp,1,page);
-            Check(filtered.Activities.Count==0,"App-only mode also filters short sessions");
-            recorder.Add(filtered,stamp.AddSeconds(9),9,page);
-            Check(filtered.Activities.Single().Seconds==10 && filtered.Activities[0].Title=="","App-only mode qualifies without storing page information");
-            filtered=Fixture(); recorder=new VisitRecorder();
-            recorder.Add(filtered,stamp,9,page); recorder.Add(filtered,stamp.AddSeconds(100),100,page); recorder.Add(filtered,stamp.AddSeconds(101),1,page);
-            Check(filtered.Activities.Count==0,"Suspend gaps discard pending page visits");
-            filtered.Activities.Add(new Activity {App="chrome",Title="Quick",Seconds=1});
-            filtered.Activities.Add(new Activity {App="chrome",Title="Long",Seconds=10});
-            filtered.Activities.Add(new Activity {App="code",Title="Project",Seconds=1});
-            Check(VisitRecorder.CleanLegacyHistory(filtered)==1 && filtered.Activities.Count==2,"Migration removes only legacy short browser rows");
-            Check(VisitRecorder.CleanLegacyApps(filtered)==1 && filtered.Activities.Count==1,"Desktop history cleanup removes short app totals");
-            var resourceState=Fixture(); var monitor=new ResourceMonitor();
-            var r0=ResourceSample(stamp,0,"code",0,0);
-            var r1=ResourceSample(stamp.AddSeconds(5),5,"code",2,1);
-            var r2=ResourceSample(stamp.AddSeconds(10),10,"code",4,2);
-            var compared=ResourceMonitor.Compare(r0,r1).Single();
-            Check(compared.Seconds==5 && compared.CpuSeconds==3 && compared.MemoryMb==300,"Browser child processes combine CPU/RAM without multiplying runtime");
-            Check(compared.CpuCapacitySeconds==40 && compared.Background,"CPU normalization uses logical processors and background focus");
-            monitor.Accept(resourceState,r0); monitor.Accept(resourceState,r1);
-            Check(resourceState.Resources.Count==0,"Background runs shorter than ten seconds stay out of history");
-            monitor.Accept(resourceState,r2);
-            Check(resourceState.Resources.Single().RunningSeconds==10 && resourceState.Resources.Single().BackgroundSeconds==10,"Background run qualifies with its first ten seconds");
-            Check(resourceState.Resources.Single().CpuSeconds==6 && resourceState.Resources.Single().MemoryMbSeconds==3000,"Resource measurements persist CPU seconds and time-weighted memory");
-            var focus=ResourceSample(stamp.AddSeconds(15),15,"chrome",6,3);
-            monitor.Accept(resourceState,focus);
-            Check(resourceState.Resources.Single().RunningSeconds==15 && resourceState.Resources.Single().BackgroundSeconds==10,"Foreground transition does not count as confirmed background time");
-            monitor.Reset(); monitor.Accept(resourceState,r0); monitor.Accept(resourceState,r1); monitor.Reset();
-            Check(resourceState.Resources.Single().RunningSeconds==15,"Pause discards short pending resource intervals");
-            Check(ResourceMonitor.Compare(r0,ResourceSample(stamp.AddSeconds(100),100,"code",50,50)).Count==0,"Suspended resource time is not recorded");
-            var reused=ResourceSample(stamp.AddSeconds(5),5,"code",2,1); reused.Processes.ForEach(p=>p.Identity+="new-start");
-            Check(ResourceMonitor.Compare(r0,reused).Count==0,"Restarted process identities do not inherit CPU time");
-            var inaccessible=ResourceSample(stamp.AddSeconds(5),5,"code",2,1); inaccessible.Processes[0].CpuSeconds=null;
-            Check(ResourceMonitor.Compare(r0,inaccessible).Single().CpuCapacitySeconds==0,"Unavailable CPU stays unavailable rather than appearing as zero usage");
-            var excludedResources=Fixture(); excludedResources.Excluded.Add("chrome"); var excludedMonitor=new ResourceMonitor();
-            excludedMonitor.Accept(excludedResources,r0); excludedMonitor.Accept(excludedResources,r1); excludedMonitor.Accept(excludedResources,r2);
-            Check(excludedResources.Resources.Count==0,"Excluded apps are not stored in resource history");
-            var overnightResources=Fixture(); ResourceMonitor.Accumulate(overnightResources,new ResourceInterval {App="chrome",End=midnight,Seconds=5,MemoryMb=100,CpuSeconds=2,CpuCapacitySeconds=40,Background=true});
-            Check(overnightResources.Resources.Count==2 && overnightResources.Resources.Sum(r=>r.CpuSeconds)==2 && overnightResources.Resources.Sum(r=>r.RunningSeconds)==5,"Resource history splits across midnight without changing totals");
-            var chartRows=new[] {
-                new Activity {App="chrome",Title="Lesson",Domain="learn.example",Category="Education",Seconds=3600},
-                new Activity {App="chrome",Title="Video",Domain="video.example",Category="Fun",Seconds=1800},
-                new Activity {App="code",Title="Project",Domain="",Category="Work",Seconds=900},
-                new Activity {App="chrome",Title="Lesson",Domain="learn.example",Category="Education",Seconds=600}
+            Check(
+                !Tracker.IsIdle(0, UInt32.MaxValue, true) && !Tracker.IsIdle(0, 0, false),
+                "Zero timeout disables inactivity detection even without input information"
+            );
+            Check(
+                !Tracker.IsIdle(60, 59999, true)
+                    && Tracker.IsIdle(60, 60000, true)
+                    && Tracker.IsIdle(60, 0, false),
+                "Enabled inactivity timeout keeps its boundary and unavailable-input behavior"
+            );
+            var state = Fixture();
+            Check(
+                Logic.Classify(state, "chrome", "Python tutorial - YouTube", "youtube.com")
+                    == "Education",
+                "Education intent takes priority over entertainment site"
+            );
+            Check(
+                Logic.Classify(state, "chrome", "Video", "youtube.com") == "Fun",
+                "Entertainment categorization"
+            );
+            state.Rules[Logic.RuleKey("chrome", "youtube.com")] = "Work";
+            Check(
+                Logic.Classify(state, "chrome", "Video", "youtube.com") == "Work",
+                "User rule wins"
+            );
+            var midnight = new DateTime(2026, 10, 13, 0, 0, 1);
+            Logic.Record(state, midnight, 2, "chrome", "Video", "youtube.com");
+            Check(
+                state.Activities.Count == 2 && state.Activities.All(a => a.Seconds == 1),
+                "Midnight splits activity between dates"
+            );
+            Logic.Record(state, midnight.AddSeconds(1), 1, "chrome", "Video", "youtube.com");
+            Check(state.Activities.Sum(a => a.Seconds) == 3, "Repeated activity aggregates");
+            Logic.Record(state, midnight, 100, "chrome", "Video", "youtube.com");
+            Check(state.Activities.Sum(a => a.Seconds) == 3, "Suspend gaps are never counted");
+            state.Excluded.Add("CHROME");
+            Logic.Record(state, midnight, 1, "chrome", "Video", "youtube.com");
+            Check(state.Activities.Sum(a => a.Seconds) == 3, "Exclusions are case insensitive");
+            state.CaptureTitles = false;
+            Logic.Record(state, midnight, 1, "firefox", "Private title", "private.example");
+            Check(
+                state.Activities.Last().Title == "" && state.Activities.Last().Domain == "",
+                "App-only mode strips page data before storage"
+            );
+            Check(
+                Logic.Project(new DateTime(2026, 10, 12), 20, 30) == new DateTime(2026, 11, 20),
+                "Goal completion includes today's session"
+            );
+            Check(
+                Logic.Project(new DateTime(2026, 10, 12), 0.5, 30) == new DateTime(2026, 10, 12),
+                "One-session goal completes today"
+            );
+            Check(Logic.Duration(3660) == "1h 1m", "Duration formatting");
+            var filtered = Fixture();
+            var recorder = new VisitRecorder();
+            var page = new Snapshot
+            {
+                App = "chrome",
+                Title = "A page",
+                Domain = "example.com",
+                Handle = new IntPtr(1),
             };
-            foreach(int mode in new[]{0,1,2}) Check(Chart.Summarize(chartRows,mode).Sum(s=>s.Seconds)==6900,"Ring preserves total time in view "+mode);
-            Check(ActivityDetails.Rank(chartRows,"chrome").First().Name=="learn.example" && ActivityDetails.Rank(chartRows,"chrome").First().Seconds==4200,"App details rank websites by total active time");
-            Check(Chart.Summarize(chartRows,1).Count(s=>s.Name=="chrome")==2,"Browser activities retain distinct category colors");
-            Check(Chart.Summarize(chartRows,2).Single(s=>s.Name=="Lesson").Seconds==4200,"Repeated page time aggregates across sessions");
-            Check(Chart.Summarize(new Activity[0],0).Count==0,"Empty activity creates an empty ring");
-            Check(Chart.Arc(-90,360) is System.Windows.Media.EllipseGeometry,"Single activity draws a complete circle");
-            var arc=(System.Windows.Media.PathGeometry)Chart.Arc(-90,270);
-            Check(((System.Windows.Media.ArcSegment)arc.Figures[0].Segments[0]).IsLargeArc,"Majority activity uses the long arc");
-            string directory=Path.Combine(Path.GetTempPath(),"ScreenTime-tests-"+Guid.NewGuid().ToString("N"));
+            var stamp = new DateTime(2026, 10, 12, 12, 0, 0);
+            for (int i = 1; i <= 9; i++)
+                recorder.Add(filtered, stamp.AddSeconds(i), 1, page);
+            Check(
+                filtered.Activities.Count == 0,
+                "Nine-second page visit never enters saved history"
+            );
+            recorder.Add(filtered, stamp.AddSeconds(10), 1, page);
+            Check(
+                filtered.Activities.Single().Seconds == 10,
+                "Ten-second visit includes all initial seconds"
+            );
+            recorder.Add(filtered, stamp.AddSeconds(11), 1, page);
+            Check(filtered.Activities.Single().Seconds == 11, "Qualified visits keep accumulating");
+            recorder.Reset();
+            recorder.Add(filtered, stamp.AddSeconds(12), 1, page);
+            recorder.Reset();
+            Check(
+                filtered.Activities.Single().Seconds == 11,
+                "Brief return to an already recorded page is still discarded"
+            );
+            filtered = Fixture();
+            recorder = new VisitRecorder();
+            for (int i = 0; i < 3; i++)
+            {
+                recorder.Add(filtered, stamp.AddSeconds(i * 5 + 4), 4, page);
+                recorder.Reset();
+            }
+            Check(
+                filtered.Activities.Count == 0,
+                "Separate brief visits do not combine to meet the threshold"
+            );
+            recorder.Add(filtered, stamp.AddSeconds(20), 9, page);
+            recorder.Add(
+                filtered,
+                stamp.AddSeconds(21),
+                1,
+                new Snapshot
+                {
+                    App = "chrome",
+                    Title = "Another page",
+                    Domain = "example.com",
+                    Handle = new IntPtr(1),
+                }
+            );
+            Check(
+                filtered.Activities.Count == 0,
+                "Changing pages on the same website resets the threshold"
+            );
+            recorder.Reset();
+            recorder.Add(
+                filtered,
+                stamp.AddSeconds(30),
+                5,
+                new Snapshot
+                {
+                    App = "chrome",
+                    Title = "A page",
+                    Handle = new IntPtr(1),
+                }
+            );
+            recorder.Add(filtered, stamp.AddSeconds(35), 5, page);
+            Check(
+                filtered.Activities.Single().Seconds == 10
+                    && filtered.Activities[0].Domain == "example.com",
+                "Late hostname discovery preserves and combines the pending visit"
+            );
+            filtered = Fixture();
+            recorder = new VisitRecorder();
+            recorder.Add(filtered, midnight.AddSeconds(-2), 5, page);
+            recorder.Add(filtered, midnight.AddSeconds(3), 5, page);
+            Check(
+                filtered.Activities.Count == 2 && filtered.Activities.Sum(a => a.Seconds) == 10,
+                "Qualified visit keeps its midnight split"
+            );
+            filtered.BrowserVisitFilterVersion = 1;
+            VisitRecorder.CleanLegacyHistory(filtered);
+            Check(
+                filtered.Activities.Count == 2,
+                "Future startup preserves short midnight pieces of a qualified visit"
+            );
+            filtered = Fixture();
+            recorder = new VisitRecorder();
+            recorder.Add(filtered, stamp, 9, new Snapshot { App = "explorer", Title = "Folder A" });
+            Check(
+                filtered.Activities.Count == 0,
+                "Desktop apps also require ten continuous seconds"
+            );
+            recorder.Add(
+                filtered,
+                stamp.AddSeconds(1),
+                1,
+                new Snapshot { App = "explorer", Title = "Folder B" }
+            );
+            Check(
+                filtered.Activities.Single().Seconds == 10,
+                "Changing folders within one app preserves its minimum threshold"
+            );
+            filtered = new State
+            {
+                CaptureTitles = false,
+                IncludePrivateWindows = true,
+                PrivacyVersion = 1,
+            };
+            recorder = new VisitRecorder();
+            recorder.Add(filtered, stamp, 1, page);
+            Check(filtered.Activities.Count == 0, "App-only mode also filters short sessions");
+            recorder.Add(filtered, stamp.AddSeconds(9), 9, page);
+            Check(
+                filtered.Activities.Single().Seconds == 10 && filtered.Activities[0].Title == "",
+                "App-only mode qualifies without storing page information"
+            );
+            filtered = Fixture();
+            recorder = new VisitRecorder();
+            recorder.Add(filtered, stamp, 9, page);
+            recorder.Add(filtered, stamp.AddSeconds(100), 100, page);
+            recorder.Add(filtered, stamp.AddSeconds(101), 1, page);
+            Check(filtered.Activities.Count == 0, "Suspend gaps discard pending page visits");
+            filtered.Activities.Add(
+                new Activity
+                {
+                    App = "chrome",
+                    Title = "Quick",
+                    Seconds = 1,
+                }
+            );
+            filtered.Activities.Add(
+                new Activity
+                {
+                    App = "chrome",
+                    Title = "Long",
+                    Seconds = 10,
+                }
+            );
+            filtered.Activities.Add(
+                new Activity
+                {
+                    App = "code",
+                    Title = "Project",
+                    Seconds = 1,
+                }
+            );
+            Check(
+                VisitRecorder.CleanLegacyHistory(filtered) == 1 && filtered.Activities.Count == 2,
+                "Migration removes only legacy short browser rows"
+            );
+            Check(
+                VisitRecorder.CleanLegacyApps(filtered) == 1 && filtered.Activities.Count == 1,
+                "Desktop history cleanup removes short app totals"
+            );
+            var resourceState = Fixture();
+            var monitor = new ResourceMonitor();
+            var r0 = ResourceSample(stamp, 0, "code", 0, 0);
+            var r1 = ResourceSample(stamp.AddSeconds(5), 5, "code", 2, 1);
+            var r2 = ResourceSample(stamp.AddSeconds(10), 10, "code", 4, 2);
+            var compared = ResourceMonitor.Compare(r0, r1).Single();
+            Check(
+                compared.Seconds == 5 && compared.CpuSeconds == 3 && compared.MemoryMb == 300,
+                "Browser child processes combine CPU/RAM without multiplying runtime"
+            );
+            Check(
+                compared.CpuCapacitySeconds == 40 && compared.Background,
+                "CPU normalization uses logical processors and background focus"
+            );
+            monitor.Accept(resourceState, r0);
+            monitor.Accept(resourceState, r1);
+            Check(
+                resourceState.Resources.Count == 0,
+                "Background runs shorter than ten seconds stay out of history"
+            );
+            monitor.Accept(resourceState, r2);
+            Check(
+                resourceState.Resources.Single().RunningSeconds == 10
+                    && resourceState.Resources.Single().BackgroundSeconds == 10,
+                "Background run qualifies with its first ten seconds"
+            );
+            Check(
+                resourceState.Resources.Single().CpuSeconds == 6
+                    && resourceState.Resources.Single().MemoryMbSeconds == 3000,
+                "Resource measurements persist CPU seconds and time-weighted memory"
+            );
+            var focus = ResourceSample(stamp.AddSeconds(15), 15, "chrome", 6, 3);
+            monitor.Accept(resourceState, focus);
+            Check(
+                resourceState.Resources.Single().RunningSeconds == 15
+                    && resourceState.Resources.Single().BackgroundSeconds == 10,
+                "Foreground transition does not count as confirmed background time"
+            );
+            monitor.Reset();
+            monitor.Accept(resourceState, r0);
+            monitor.Accept(resourceState, r1);
+            monitor.Reset();
+            Check(
+                resourceState.Resources.Single().RunningSeconds == 15,
+                "Pause discards short pending resource intervals"
+            );
+            Check(
+                ResourceMonitor
+                    .Compare(r0, ResourceSample(stamp.AddSeconds(100), 100, "code", 50, 50))
+                    .Count == 0,
+                "Suspended resource time is not recorded"
+            );
+            var reused = ResourceSample(stamp.AddSeconds(5), 5, "code", 2, 1);
+            reused.Processes.ForEach(p => p.Identity += "new-start");
+            Check(
+                ResourceMonitor.Compare(r0, reused).Count == 0,
+                "Restarted process identities do not inherit CPU time"
+            );
+            var inaccessible = ResourceSample(stamp.AddSeconds(5), 5, "code", 2, 1);
+            inaccessible.Processes[0].CpuSeconds = null;
+            Check(
+                ResourceMonitor.Compare(r0, inaccessible).Single().CpuCapacitySeconds == 0,
+                "Unavailable CPU stays unavailable rather than appearing as zero usage"
+            );
+            var excludedResources = Fixture();
+            excludedResources.Excluded.Add("chrome");
+            var excludedMonitor = new ResourceMonitor();
+            excludedMonitor.Accept(excludedResources, r0);
+            excludedMonitor.Accept(excludedResources, r1);
+            excludedMonitor.Accept(excludedResources, r2);
+            Check(
+                excludedResources.Resources.Count == 0,
+                "Excluded apps are not stored in resource history"
+            );
+            var overnightResources = Fixture();
+            ResourceMonitor.Accumulate(
+                overnightResources,
+                new ResourceInterval
+                {
+                    App = "chrome",
+                    End = midnight,
+                    Seconds = 5,
+                    MemoryMb = 100,
+                    CpuSeconds = 2,
+                    CpuCapacitySeconds = 40,
+                    Background = true,
+                }
+            );
+            Check(
+                overnightResources.Resources.Count == 2
+                    && overnightResources.Resources.Sum(r => r.CpuSeconds) == 2
+                    && overnightResources.Resources.Sum(r => r.RunningSeconds) == 5,
+                "Resource history splits across midnight without changing totals"
+            );
+            var chartRows = new[]
+            {
+                new Activity
+                {
+                    App = "chrome",
+                    Title = "Lesson",
+                    Domain = "learn.example",
+                    Category = "Education",
+                    Seconds = 3600,
+                },
+                new Activity
+                {
+                    App = "chrome",
+                    Title = "Video",
+                    Domain = "video.example",
+                    Category = "Fun",
+                    Seconds = 1800,
+                },
+                new Activity
+                {
+                    App = "code",
+                    Title = "Project",
+                    Domain = "",
+                    Category = "Work",
+                    Seconds = 900,
+                },
+                new Activity
+                {
+                    App = "chrome",
+                    Title = "Lesson",
+                    Domain = "learn.example",
+                    Category = "Education",
+                    Seconds = 600,
+                },
+            };
+            foreach (int mode in new[] { 0, 1, 2 })
+                Check(
+                    Chart.Summarize(chartRows, mode).Sum(s => s.Seconds) == 6900,
+                    "Ring preserves total time in view " + mode
+                );
+            Check(
+                ActivityDetails.Rank(chartRows, "chrome").First().Name == "learn.example"
+                    && ActivityDetails.Rank(chartRows, "chrome").First().Seconds == 4200,
+                "App details rank websites by total active time"
+            );
+            Check(
+                Chart.Summarize(chartRows, 1).Count(s => s.Name == "chrome") == 2,
+                "Browser activities retain distinct category colors"
+            );
+            Check(
+                Chart.Summarize(chartRows, 2).Single(s => s.Name == "Lesson").Seconds == 4200,
+                "Repeated page time aggregates across sessions"
+            );
+            Check(
+                Chart.Summarize(new Activity[0], 0).Count == 0,
+                "Empty activity creates an empty ring"
+            );
+            Check(
+                Chart.Arc(-90, 360) is System.Windows.Media.EllipseGeometry,
+                "Single activity draws a complete circle"
+            );
+            var arc = (System.Windows.Media.PathGeometry)Chart.Arc(-90, 270);
+            Check(
+                ((System.Windows.Media.ArcSegment)arc.Figures[0].Segments[0]).IsLargeArc,
+                "Majority activity uses the long arc"
+            );
+            string directory = Path.Combine(
+                Path.GetTempPath(),
+                "ScreenTime-tests-" + Guid.NewGuid().ToString("N")
+            );
             Directory.CreateDirectory(directory);
-            try {
-                var store=new Store(Path.Combine(directory,"test.json")); state.IdleSeconds=0; state.MinimumLogSeconds=25; store.Save(state);
-                Check(store.Load().IdleSeconds==0,"Always-count setting survives saving and normalization on restart");
-                Check(store.Load().MinimumLogSeconds==25,"Custom minimum logging time survives saving and restart");
-                Check(store.Load().Activities.Count==state.Activities.Count,"Activity survives restart");
-                store.Save(state); File.WriteAllText(store.Path,"invalid");
-                Check(store.Load().Activities.Count==state.Activities.Count && store.Warning!=null,"Corrupt storage recovers from backup");
-                Check(Directory.GetFiles(directory,"*.unreadable-*").Length==1,"Unreadable data preserved for recovery");
-                store.Save(resourceState); Check(store.Load().Resources.Single().CpuSeconds==9,"CPU and memory history survives restart");
-                Check(Store.IsEncrypted(File.ReadAllBytes(store.Path)) && Store.IsEncrypted(File.ReadAllBytes(store.Path+".bak")),"History and rolling backup are encrypted at rest");
-                Check(!Encoding.UTF8.GetString(File.ReadAllBytes(store.Path)).Contains("chrome"),"App names are not plaintext in encrypted files");
-                Check(store.Load().Sessions.Count==resourceState.Sessions.Count && store.Load().Sessions.Single().SessionId==resourceState.Sessions.Single().SessionId,"Session identity and measurements survive restart");
-                var legacy=new Store(Path.Combine(directory,"legacy.json"));
-                using(var file=File.Create(legacy.Path)) new DataContractJsonSerializer(typeof(State)).WriteObject(file,resourceState);
-                File.Copy(legacy.Path,legacy.Path+".bak");
-                Check(legacy.Load().Resources.Count==1 && Store.IsEncrypted(File.ReadAllBytes(legacy.Path)) && Store.IsEncrypted(File.ReadAllBytes(legacy.Path+".bak")),"Plaintext history and backup migrate without losing records");
-                File.WriteAllText(legacy.Path,"broken main"); File.WriteAllText(legacy.Path+".bak","broken backup");
-                bool rejected=false; try { legacy.Load(); } catch(InvalidDataException) { rejected=true; }
-                Check(rejected && File.ReadAllText(legacy.Path)=="broken main","Unrecoverable history fails closed instead of overwriting with an empty day");
-            } finally { RemoveTestDirectory(directory); }
-            Console.WriteLine(count+" checks passed."); return 0;
-        } catch(Exception ex) { Console.Error.WriteLine("FAIL "+ex); return 1; }
+            try
+            {
+                var store = new Store(Path.Combine(directory, "test.json"));
+                state.IdleSeconds = 0;
+                state.MinimumLogSeconds = 25;
+                store.Save(state);
+                Check(
+                    store.Load().IdleSeconds == 0,
+                    "Always-count setting survives saving and normalization on restart"
+                );
+                Check(
+                    store.Load().MinimumLogSeconds == 25,
+                    "Custom minimum logging time survives saving and restart"
+                );
+                Check(
+                    store.Load().Activities.Count == state.Activities.Count,
+                    "Activity survives restart"
+                );
+                store.Save(state);
+                File.WriteAllText(store.Path, "invalid");
+                Check(
+                    store.Load().Activities.Count == state.Activities.Count
+                        && store.Warning != null,
+                    "Corrupt storage recovers from backup"
+                );
+                Check(
+                    Directory.GetFiles(directory, "*.unreadable-*").Length == 1,
+                    "Unreadable data preserved for recovery"
+                );
+                store.Save(resourceState);
+                Check(
+                    store.Load().Resources.Single().CpuSeconds == 9,
+                    "CPU and memory history survives restart"
+                );
+                Check(
+                    Store.IsEncrypted(File.ReadAllBytes(store.Path))
+                        && Store.IsEncrypted(File.ReadAllBytes(store.Path + ".bak")),
+                    "History and rolling backup are encrypted at rest"
+                );
+                Check(
+                    !Encoding.UTF8.GetString(File.ReadAllBytes(store.Path)).Contains("chrome"),
+                    "App names are not plaintext in encrypted files"
+                );
+                Check(
+                    store.Load().Sessions.Count == resourceState.Sessions.Count
+                        && store.Load().Sessions.Single().SessionId
+                            == resourceState.Sessions.Single().SessionId,
+                    "Session identity and measurements survive restart"
+                );
+                var legacy = new Store(Path.Combine(directory, "legacy.json"));
+                using (var file = File.Create(legacy.Path))
+                    new DataContractJsonSerializer(typeof(State)).WriteObject(file, resourceState);
+                File.Copy(legacy.Path, legacy.Path + ".bak");
+                Check(
+                    legacy.Load().Resources.Count == 1
+                        && Store.IsEncrypted(File.ReadAllBytes(legacy.Path))
+                        && Store.IsEncrypted(File.ReadAllBytes(legacy.Path + ".bak")),
+                    "Plaintext history and backup migrate without losing records"
+                );
+                File.WriteAllText(legacy.Path, "broken main");
+                File.WriteAllText(legacy.Path + ".bak", "broken backup");
+                bool rejected = false;
+                try
+                {
+                    legacy.Load();
+                }
+                catch (InvalidDataException)
+                {
+                    rejected = true;
+                }
+                Check(
+                    rejected && File.ReadAllText(legacy.Path) == "broken main",
+                    "Unrecoverable history fails closed instead of overwriting with an empty day"
+                );
+            }
+            finally
+            {
+                RemoveTestDirectory(directory);
+            }
+            Console.WriteLine(count + " checks passed.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("FAIL " + ex);
+            return 1;
+        }
     }
-    static ResourceSnapshot ResourceSample(DateTime at,double monotonic,string foreground,double cpu1,double cpu2) {
-        var result=new ResourceSnapshot { At=at,MonotonicSeconds=monotonic,Cores=8,Foreground=foreground };
-        result.Processes.Add(new ProcessReading {App="chrome",Identity="1:start",CpuSeconds=cpu1,MemoryMb=100});
-        result.Processes.Add(new ProcessReading {App="chrome",Identity="2:start",CpuSeconds=cpu2,MemoryMb=200}); return result;
+
+    static ResourceSnapshot ResourceSample(
+        DateTime at,
+        double monotonic,
+        string foreground,
+        double cpu1,
+        double cpu2
+    )
+    {
+        var result = new ResourceSnapshot
+        {
+            At = at,
+            MonotonicSeconds = monotonic,
+            Cores = 8,
+            Foreground = foreground,
+        };
+        result.Processes.Add(
+            new ProcessReading
+            {
+                App = "chrome",
+                Identity = "1:start",
+                CpuSeconds = cpu1,
+                MemoryMb = 100,
+            }
+        );
+        result.Processes.Add(
+            new ProcessReading
+            {
+                App = "chrome",
+                Identity = "2:start",
+                CpuSeconds = cpu2,
+                MemoryMb = 200,
+            }
+        );
+        return result;
     }
-    static void RemoveTestDirectory(string directory) {
-        string full=Path.GetFullPath(directory), prefix=Path.Combine(Path.GetTempPath(),"ScreenTime-tests-");
-        if(!full.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)) throw new Exception("Unsafe test cleanup path");
-        Directory.Delete(full,true);
+
+    static void RemoveTestDirectory(string directory)
+    {
+        string full = Path.GetFullPath(directory),
+            prefix = Path.Combine(Path.GetTempPath(), "ScreenTime-tests-");
+        if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            throw new Exception("Unsafe test cleanup path");
+        Directory.Delete(full, true);
     }
-    static void CrashSaveWorker(string directory) {
-        var state=Fixture(); state.IdleSeconds=0; state.MinimumLogSeconds=50;
-        for(int i=0;i<256;i++) state.Activities.Add(new Activity {App="fixture",Day="2026-10-17",Title=new String('x',2048)+i,Domain="",Category="Work",Seconds=3600});
-        var store=new Store(Path.Combine(directory,"activity.json")); store.Save(state);
-        Console.WriteLine("READY"); Console.Out.Flush();
-        var clock=Stopwatch.StartNew();
-        while(clock.Elapsed<TimeSpan.FromSeconds(15)) { state.Activities[0].Seconds++; store.Save(state); }
+
+    static void CrashSaveWorker(string directory)
+    {
+        var state = Fixture();
+        state.IdleSeconds = 0;
+        state.MinimumLogSeconds = 50;
+        for (int i = 0; i < 256; i++)
+            state.Activities.Add(
+                new Activity
+                {
+                    App = "fixture",
+                    Day = "2026-10-17",
+                    Title = new String('x', 2048) + i,
+                    Domain = "",
+                    Category = "Work",
+                    Seconds = 3600,
+                }
+            );
+        var store = new Store(Path.Combine(directory, "activity.json"));
+        store.Save(state);
+        Console.WriteLine("READY");
+        Console.Out.Flush();
+        var clock = Stopwatch.StartNew();
+        while (clock.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            state.Activities[0].Seconds++;
+            store.Save(state);
+        }
     }
-    static void CrashSaveCheck() {
-        string directory=Path.Combine(Path.GetTempPath(),"ScreenTime-tests-"+Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
-        Process worker=null;
-        try {
-            worker=Process.Start(new ProcessStartInfo(System.Reflection.Assembly.GetExecutingAssembly().Location) {
-                Arguments="--crash-save-worker \""+directory+"\"",UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true
-            });
-            var ready=worker.StandardOutput.ReadLineAsync();
-            Check(ready.Wait(10000) && ready.Result=="READY","Disposable writer committed a baseline before crash testing");
-            string path=Path.Combine(directory,"activity.json");
-            var deadline=Stopwatch.StartNew();
-            bool sawPendingSave=false;
-            while(deadline.Elapsed<TimeSpan.FromSeconds(3) && !worker.HasExited) {
-                if(File.Exists(path+".tmp")) { sawPendingSave=true; break; }
+
+    static void CrashSaveCheck()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "ScreenTime-tests-" + Guid.NewGuid().ToString("N")
+        );
+        Directory.CreateDirectory(directory);
+        Process worker = null;
+        try
+        {
+            worker = Process.Start(
+                new ProcessStartInfo(System.Reflection.Assembly.GetExecutingAssembly().Location)
+                {
+                    Arguments = "--crash-save-worker \"" + directory + "\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                }
+            );
+            var ready = worker.StandardOutput.ReadLineAsync();
+            Check(
+                ready.Wait(10000) && ready.Result == "READY",
+                "Disposable writer committed a baseline before crash testing"
+            );
+            string path = Path.Combine(directory, "activity.json");
+            var deadline = Stopwatch.StartNew();
+            bool sawPendingSave = false;
+            while (deadline.Elapsed < TimeSpan.FromSeconds(3) && !worker.HasExited)
+            {
+                if (File.Exists(path + ".tmp"))
+                {
+                    sawPendingSave = true;
+                    break;
+                }
                 Thread.Sleep(1);
             }
-            Check(sawPendingSave,"Crash test reached an in-progress temporary save");
-            worker.Kill(); worker.WaitForExit();
-            var restored=new Store(path).Load();
-            Check(restored.Activities.Count==256 && restored.Activities.All(a=>a.Seconds>=3600),"Abrupt writer termination preserves every previously committed history row");
-            Check(restored.IdleSeconds==0 && restored.MinimumLogSeconds==50,"Abrupt writer termination preserves both timing preferences");
-            Check(Store.IsEncrypted(File.ReadAllBytes(path)),"Recovered crash-test history remains encrypted");
-        } finally {
-            if(worker!=null) { if(!worker.HasExited) { worker.Kill(); worker.WaitForExit(); } worker.Dispose(); }
+            Check(sawPendingSave, "Crash test reached an in-progress temporary save");
+            worker.Kill();
+            worker.WaitForExit();
+            var restored = new Store(path).Load();
+            Check(
+                restored.Activities.Count == 256 && restored.Activities.All(a => a.Seconds >= 3600),
+                "Abrupt writer termination preserves every previously committed history row"
+            );
+            Check(
+                restored.IdleSeconds == 0 && restored.MinimumLogSeconds == 50,
+                "Abrupt writer termination preserves both timing preferences"
+            );
+            Check(
+                Store.IsEncrypted(File.ReadAllBytes(path)),
+                "Recovered crash-test history remains encrypted"
+            );
+        }
+        finally
+        {
+            if (worker != null)
+            {
+                if (!worker.HasExited)
+                {
+                    worker.Kill();
+                    worker.WaitForExit();
+                }
+                worker.Dispose();
+            }
             RemoveTestDirectory(directory);
         }
     }
-    static void AuditChecks() {
-        var availability=new TrackingAvailability();
-        Check(!availability.Apply(PowerModes.StatusChange) && !availability.Blocked,"Battery status changes do not interrupt recording or sessions");
-        Check(!availability.Apply(SessionSwitchReason.SessionRemoteControl) && !availability.Blocked,"Remote-control notifications cannot leave tracking stuck away");
-        Check(availability.Apply(SessionSwitchReason.SessionLock) && availability.Blocked,"Lock blocks recording");
-        availability.Apply(PowerModes.Suspend); availability.Apply(PowerModes.Resume);
-        Check(availability.Blocked,"Resume does not bypass a Windows lock");
+
+    static void AuditChecks()
+    {
+        var availability = new TrackingAvailability();
+        Check(
+            !availability.Apply(PowerModes.StatusChange) && !availability.Blocked,
+            "Battery status changes do not interrupt recording or sessions"
+        );
+        Check(
+            !availability.Apply(SessionSwitchReason.SessionRemoteControl) && !availability.Blocked,
+            "Remote-control notifications cannot leave tracking stuck away"
+        );
+        Check(
+            availability.Apply(SessionSwitchReason.SessionLock) && availability.Blocked,
+            "Lock blocks recording"
+        );
+        availability.Apply(PowerModes.Suspend);
+        availability.Apply(PowerModes.Resume);
+        Check(availability.Blocked, "Resume does not bypass a Windows lock");
         availability.Apply(SessionSwitchReason.RemoteConnect);
-        Check(availability.Blocked,"Connection events do not bypass a Windows lock");
-        Check(availability.Apply(SessionSwitchReason.SessionUnlock) && !availability.Blocked,"Unlock restores tracking");
-        Check(availability.Apply(PowerModes.Suspend) && availability.Blocked && availability.Apply(PowerModes.Resume) && !availability.Blocked,"Sleep and resume reset observation without counting the gap");
-        availability.Apply(SessionSwitchReason.ConsoleDisconnect); availability.Apply(SessionSwitchReason.SessionUnlock);
-        Check(availability.Blocked,"Unlock cannot resume a disconnected session");
+        Check(availability.Blocked, "Connection events do not bypass a Windows lock");
+        Check(
+            availability.Apply(SessionSwitchReason.SessionUnlock) && !availability.Blocked,
+            "Unlock restores tracking"
+        );
+        Check(
+            availability.Apply(PowerModes.Suspend)
+                && availability.Blocked
+                && availability.Apply(PowerModes.Resume)
+                && !availability.Blocked,
+            "Sleep and resume reset observation without counting the gap"
+        );
+        availability.Apply(SessionSwitchReason.ConsoleDisconnect);
+        availability.Apply(SessionSwitchReason.SessionUnlock);
+        Check(availability.Blocked, "Unlock cannot resume a disconnected session");
         availability.Apply(SessionSwitchReason.ConsoleConnect);
-        Check(!availability.Blocked,"Reconnect restores an unlocked session");
-        Check(Logic.ParseExclusions(" CHROME.EXE, chrome.exe, tool.exe.helper.exe, ").SequenceEqual(new[]{"CHROME","tool.exe.helper"}),"Exclusions accept uppercase EXE and remove only the suffix");
-        using(var stream=new MemoryStream(Encoding.UTF8.GetBytes("{\"PrivacyVersion\":1}"))) {
-            var legacy=(State)new DataContractJsonSerializer(typeof(State)).ReadObject(stream); legacy.Normalize();
-            Check(legacy.IdleSeconds==60,"Missing legacy idle setting uses 60 seconds instead of always-count");
-            Check(legacy.MinimumLogSeconds==10,"Existing histories without the new setting retain the ten-second minimum");
+        Check(!availability.Blocked, "Reconnect restores an unlocked session");
+        Check(
+            Logic
+                .ParseExclusions(" CHROME.EXE, chrome.exe, tool.exe.helper.exe, ")
+                .SequenceEqual(new[] { "CHROME", "tool.exe.helper" }),
+            "Exclusions accept uppercase EXE and remove only the suffix"
+        );
+        using (var stream = new MemoryStream(Encoding.UTF8.GetBytes("{\"PrivacyVersion\":1}")))
+        {
+            var legacy = (State)new DataContractJsonSerializer(typeof(State)).ReadObject(stream);
+            legacy.Normalize();
+            Check(
+                legacy.IdleSeconds == 60,
+                "Missing legacy idle setting uses 60 seconds instead of always-count"
+            );
+            Check(
+                legacy.MinimumLogSeconds == 10,
+                "Existing histories without the new setting retain the ten-second minimum"
+            );
         }
-        var invalid=Fixture(); invalid.Rules["app:code"]="invalid"; invalid.Activities.Add(new Activity {App="code",Day="2026-10-14",Seconds=20}); invalid.Normalize();
-        Check(invalid.Activities[0].Category=="Work","Invalid categories are repaired without deleting history");
-        Check(CalendarPeriod.Move(DateTime.MinValue,0,-1)==DateTime.MinValue && CalendarPeriod.Move(DateTime.MaxValue.Date,2,1)==DateTime.MaxValue.Date,"Calendar navigation cannot overflow at supported date boundaries");
-        Check(CalendarPeriod.Contains("9999-12-31",DateTime.MaxValue.Date,2),"Final supported calendar month includes its last day");
-        var originalCulture=Thread.CurrentThread.CurrentCulture;
-        try {
-            Thread.CurrentThread.CurrentCulture=new System.Globalization.CultureInfo("th-TH");
-            var localized=Fixture(); var end=new DateTime(2026,10,17,12,0,0);
-            Logic.Record(localized,end,10,"code","","");
-            ResourceMonitor.Accumulate(localized,new ResourceInterval {App="code",End=end,Seconds=10,SessionId="culture"});
-            Check(localized.Activities[0].Day=="2026-10-17" && localized.Resources[0].Day=="2026-10-17","History keys use Gregorian dates regardless of Windows calendar locale");
-        } finally { Thread.CurrentThread.CurrentCulture=originalCulture; }
-        var badMetric=new MetricSummary(); badMetric.Add(5,Double.NaN); badMetric.Add(5,Double.PositiveInfinity);
-        Check(badMetric.Seconds==0 && badMetric.Total==0,"Invalid sample durations cannot poison resource averages");
-        string directory=Path.Combine(Path.GetTempPath(),"ScreenTime-tests-"+Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
-        try {
-            var state=Fixture(); state.IdleSeconds=0;
-            string current=typeof(State).Assembly.Location,copy=Path.Combine(directory,"startup.exe");
-            Check(!StartupManager.UpToDate(current,copy),"Missing startup executable requires installation");
-            File.Copy(current,copy);
-            Check(StartupManager.UpToDate(current,copy),"Matching standalone and installed builds need no replacement");
-            using(var changed=File.Open(copy,FileMode.Append)) changed.WriteByte(0);
-            Check(!StartupManager.UpToDate(current,copy),"A different installed build is repaired even when its version matches");
-            string older=System.Reflection.Assembly.GetExecutingAssembly().Location;
-            Check(!StartupManager.UpToDate(current,older),"An older installed version requires the downloaded update");
-            Check(StartupManager.UpToDate(older,current),"An older download cannot downgrade a newer startup installation");
-            state.Activities.Add(new Activity {App="code",Day="2026-10-14",Seconds=600,Category="Work"});
-            var store=new Store(Path.Combine(directory,"activity.json")); store.Save(state); store.Save(state);
-            string checkpoint=Directory.GetFiles(store.SnapshotDirectory).Single();
-            Check(Store.IsEncrypted(File.ReadAllBytes(checkpoint)),"Dated recovery snapshots are encrypted");
-            state.Activities[0].Seconds=900; store.Save(state);
-            Check(Directory.GetFiles(store.SnapshotDirectory).Length==1,"Routine saves preserve the earlier daily recovery point");
-            File.WriteAllText(store.Path,"broken main"); File.WriteAllText(store.Path+".bak","broken backup");
-            Check(store.Load().Activities[0].Seconds==600 && store.Warning!=null,"Dated snapshot recovers history when both rolling files are corrupt");
-            Check(Store.IsEncrypted(File.ReadAllBytes(store.Path)),"Recovered history is committed before subsequent autosaves");
-            var interrupted=new Store(Path.Combine(directory,"interrupted.json"));
-            File.Copy(store.Path,interrupted.Path+".tmp");
-            Check(interrupted.Load().Activities.Count==1 && File.Exists(interrupted.Path),"Interrupted first save recovers the encrypted temporary file");
-            var missing=new Store(Path.Combine(directory,"missing.json")); File.Copy(store.Path,missing.Path+".bak");
-            Check(missing.Load().Activities.Count==1,"Missing primary file recovers its rolling backup");
-            var loaded=store.Load(); store.DeleteHistory(loaded);
-            Check(store.Load().Activities.Count==0 && store.Load().IdleSeconds==0 && !Directory.GetFiles(store.SnapshotDirectory).Any(),"Delete-history clears dated snapshots and preserves preferences");
-            File.WriteAllText(store.Path,"broken main after deletion");
-            Check(store.Load().Activities.Count==0,"Deleted activity cannot reappear through rolling recovery");
-            var retained=new Store(Path.Combine(directory,"retained.json")); retained.Save(state);
-            Directory.CreateDirectory(retained.SnapshotDirectory);
-            for(int i=0;i<35;i++) File.Copy(retained.Path,Path.Combine(retained.SnapshotDirectory,DateTime.Today.AddDays(i-40).ToString("yyyy-MM-dd")+".bin"));
+        var invalid = Fixture();
+        invalid.Rules["app:code"] = "invalid";
+        invalid.Activities.Add(
+            new Activity
+            {
+                App = "code",
+                Day = "2026-10-14",
+                Seconds = 20,
+            }
+        );
+        invalid.Normalize();
+        Check(
+            invalid.Activities[0].Category == "Work",
+            "Invalid categories are repaired without deleting history"
+        );
+        Check(
+            CalendarPeriod.Move(DateTime.MinValue, 0, -1) == DateTime.MinValue
+                && CalendarPeriod.Move(DateTime.MaxValue.Date, 2, 1) == DateTime.MaxValue.Date,
+            "Calendar navigation cannot overflow at supported date boundaries"
+        );
+        Check(
+            CalendarPeriod.Contains("9999-12-31", DateTime.MaxValue.Date, 2),
+            "Final supported calendar month includes its last day"
+        );
+        var originalCulture = Thread.CurrentThread.CurrentCulture;
+        try
+        {
+            Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("th-TH");
+            var localized = Fixture();
+            var end = new DateTime(2026, 10, 17, 12, 0, 0);
+            Logic.Record(localized, end, 10, "code", "", "");
+            ResourceMonitor.Accumulate(
+                localized,
+                new ResourceInterval
+                {
+                    App = "code",
+                    End = end,
+                    Seconds = 10,
+                    SessionId = "culture",
+                }
+            );
+            Check(
+                localized.Activities[0].Day == "2026-10-17"
+                    && localized.Resources[0].Day == "2026-10-17",
+                "History keys use Gregorian dates regardless of Windows calendar locale"
+            );
+        }
+        finally
+        {
+            Thread.CurrentThread.CurrentCulture = originalCulture;
+        }
+        var badMetric = new MetricSummary();
+        badMetric.Add(5, Double.NaN);
+        badMetric.Add(5, Double.PositiveInfinity);
+        Check(
+            badMetric.Seconds == 0 && badMetric.Total == 0,
+            "Invalid sample durations cannot poison resource averages"
+        );
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "ScreenTime-tests-" + Guid.NewGuid().ToString("N")
+        );
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var state = Fixture();
+            state.IdleSeconds = 0;
+            string current = typeof(State).Assembly.Location,
+                copy = Path.Combine(directory, "startup.exe");
+            Check(
+                !StartupManager.UpToDate(current, copy),
+                "Missing startup executable requires installation"
+            );
+            File.Copy(current, copy);
+            Check(
+                StartupManager.UpToDate(current, copy),
+                "Matching standalone and installed builds need no replacement"
+            );
+            using (var changed = File.Open(copy, FileMode.Append))
+                changed.WriteByte(0);
+            Check(
+                !StartupManager.UpToDate(current, copy),
+                "A different installed build is repaired even when its version matches"
+            );
+            string older = System.Reflection.Assembly.GetExecutingAssembly().Location;
+            Check(
+                !StartupManager.UpToDate(current, older),
+                "An older installed version requires the downloaded update"
+            );
+            Check(
+                StartupManager.UpToDate(older, current),
+                "An older download cannot downgrade a newer startup installation"
+            );
+            state.Activities.Add(
+                new Activity
+                {
+                    App = "code",
+                    Day = "2026-10-14",
+                    Seconds = 600,
+                    Category = "Work",
+                }
+            );
+            var store = new Store(Path.Combine(directory, "activity.json"));
+            store.Save(state);
+            store.Save(state);
+            string checkpoint = Directory.GetFiles(store.SnapshotDirectory).Single();
+            Check(
+                Store.IsEncrypted(File.ReadAllBytes(checkpoint)),
+                "Dated recovery snapshots are encrypted"
+            );
+            state.Activities[0].Seconds = 900;
+            store.Save(state);
+            Check(
+                Directory.GetFiles(store.SnapshotDirectory).Length == 1,
+                "Routine saves preserve the earlier daily recovery point"
+            );
+            File.WriteAllText(store.Path, "broken main");
+            File.WriteAllText(store.Path + ".bak", "broken backup");
+            Check(
+                store.Load().Activities[0].Seconds == 600 && store.Warning != null,
+                "Dated snapshot recovers history when both rolling files are corrupt"
+            );
+            Check(
+                Store.IsEncrypted(File.ReadAllBytes(store.Path)),
+                "Recovered history is committed before subsequent autosaves"
+            );
+            var interrupted = new Store(Path.Combine(directory, "interrupted.json"));
+            File.Copy(store.Path, interrupted.Path + ".tmp");
+            Check(
+                interrupted.Load().Activities.Count == 1 && File.Exists(interrupted.Path),
+                "Interrupted first save recovers the encrypted temporary file"
+            );
+            var missing = new Store(Path.Combine(directory, "missing.json"));
+            File.Copy(store.Path, missing.Path + ".bak");
+            Check(
+                missing.Load().Activities.Count == 1,
+                "Missing primary file recovers its rolling backup"
+            );
+            var loaded = store.Load();
+            store.DeleteHistory(loaded);
+            Check(
+                store.Load().Activities.Count == 0
+                    && store.Load().IdleSeconds == 0
+                    && !Directory.GetFiles(store.SnapshotDirectory).Any(),
+                "Delete-history clears dated snapshots and preserves preferences"
+            );
+            File.WriteAllText(store.Path, "broken main after deletion");
+            Check(
+                store.Load().Activities.Count == 0,
+                "Deleted activity cannot reappear through rolling recovery"
+            );
+            var retained = new Store(Path.Combine(directory, "retained.json"));
             retained.Save(state);
-            Check(Directory.GetFiles(retained.SnapshotDirectory).Length==30 && retained.Load().Activities[0].Day=="2026-10-14","Thirty recovery snapshots bound backup size without trimming activity history");
-        } finally { RemoveTestDirectory(directory); }
+            Directory.CreateDirectory(retained.SnapshotDirectory);
+            for (int i = 0; i < 35; i++)
+                File.Copy(
+                    retained.Path,
+                    Path.Combine(
+                        retained.SnapshotDirectory,
+                        DateTime.Today.AddDays(i - 40).ToString("yyyy-MM-dd") + ".bin"
+                    )
+                );
+            retained.Save(state);
+            Check(
+                Directory.GetFiles(retained.SnapshotDirectory).Length == 30
+                    && retained.Load().Activities[0].Day == "2026-10-14",
+                "Thirty recovery snapshots bound backup size without trimming activity history"
+            );
+        }
+        finally
+        {
+            RemoveTestDirectory(directory);
+        }
     }
-    static void CalendarChecks() {
-        var rows=new List<Activity> {
-            new Activity { Day="2024-02-01",App="code",Category="Work",Seconds=3600 },
-            new Activity { Day="2024-02-01",App="chrome",Category="Education",Seconds=1800 },
-            new Activity { Day="2024-02-29",App="game",Category="Fun",Seconds=7200 },
-            new Activity { Day="2024-03-01",App="code",Category="Work",Seconds=300 },
-            new Activity { Day="2023-12-31",App="code",Category="Work",Seconds=900 },
-            new Activity { Day="not-a-date",App="code",Seconds=100 },
-            new Activity { Day="2024-02-01",App="code",Seconds=-100 },
-            new Activity { Day="2024-02-01",App="code",Seconds=Double.NaN },
-            new Activity { Day="2024-02-01",App="code",Seconds=Double.PositiveInfinity }, null
+
+    static void CalendarChecks()
+    {
+        var rows = new List<Activity>
+        {
+            new Activity
+            {
+                Day = "2024-02-01",
+                App = "code",
+                Category = "Work",
+                Seconds = 3600,
+            },
+            new Activity
+            {
+                Day = "2024-02-01",
+                App = "chrome",
+                Category = "Education",
+                Seconds = 1800,
+            },
+            new Activity
+            {
+                Day = "2024-02-29",
+                App = "game",
+                Category = "Fun",
+                Seconds = 7200,
+            },
+            new Activity
+            {
+                Day = "2024-03-01",
+                App = "code",
+                Category = "Work",
+                Seconds = 300,
+            },
+            new Activity
+            {
+                Day = "2023-12-31",
+                App = "code",
+                Category = "Work",
+                Seconds = 900,
+            },
+            new Activity
+            {
+                Day = "not-a-date",
+                App = "code",
+                Seconds = 100,
+            },
+            new Activity
+            {
+                Day = "2024-02-01",
+                App = "code",
+                Seconds = -100,
+            },
+            new Activity
+            {
+                Day = "2024-02-01",
+                App = "code",
+                Seconds = Double.NaN,
+            },
+            new Activity
+            {
+                Day = "2024-02-01",
+                App = "code",
+                Seconds = Double.PositiveInfinity,
+            },
+            null,
         };
-        var calendar=CalendarOverview.Create(rows,new DateTime(2024,2,17));
-        Check(calendar.Days.Count==29 && calendar.MondayOffset==3 && calendar.Month==new DateTime(2024,2,1),"Calendar lays out leap February with Monday-first weekday alignment");
-        Check(calendar.Days[0].Seconds==5400 && calendar.Days[28].Seconds==7200 && calendar.Seconds==12600,"Daily squares and month totals combine app/page time without crossing month boundaries");
-        Check(calendar.Days[0].Categories["Work"]==3600 && calendar.Days[0].Categories["Education"]==1800,"Calendar preserves each day's category color proportions");
-        Check(calendar.Days[1].Seconds==0 && calendar.TrackedDays==2,"Missing days stay empty and do not inflate tracked-day counts");
-        Check(calendar.History.Select(m=>m.Month).SequenceEqual(new[]{new DateTime(2024,3,1),new DateTime(2024,2,1),new DateTime(2023,12,1)}) && calendar.History.Sum(m=>m.Seconds)==13800,"Saved months include past years in newest-first order and ignore invalid durations");
-        var empty=CalendarOverview.Create(rows,new DateTime(2026,11,1));
-        Check(empty.MondayOffset==6 && empty.Days.Count==30 && empty.Seconds==0,"Six-row months and empty historical periods remain valid");
-        Check(CalendarOverview.Create(rows,DateTime.MinValue).Days.Count==31 && CalendarOverview.Create(rows,DateTime.MaxValue).Days.Count==31,"Calendar supports first and final months without date overflow");
-        Check(rows[0].Seconds==3600 && rows.Count==10,"Browsing calendar history does not alter saved activity");
+        var calendar = CalendarOverview.Create(rows, new DateTime(2024, 2, 17));
+        Check(
+            calendar.Days.Count == 29
+                && calendar.MondayOffset == 3
+                && calendar.Month == new DateTime(2024, 2, 1),
+            "Calendar lays out leap February with Monday-first weekday alignment"
+        );
+        Check(
+            calendar.Days[0].Seconds == 5400
+                && calendar.Days[28].Seconds == 7200
+                && calendar.Seconds == 12600,
+            "Daily squares and month totals combine app/page time without crossing month boundaries"
+        );
+        Check(
+            calendar.Days[0].Categories["Work"] == 3600
+                && calendar.Days[0].Categories["Education"] == 1800,
+            "Calendar preserves each day's category color proportions"
+        );
+        Check(
+            calendar.Days[1].Seconds == 0 && calendar.TrackedDays == 2,
+            "Missing days stay empty and do not inflate tracked-day counts"
+        );
+        Check(
+            calendar
+                .History.Select(m => m.Month)
+                .SequenceEqual(
+                    new[]
+                    {
+                        new DateTime(2024, 3, 1),
+                        new DateTime(2024, 2, 1),
+                        new DateTime(2023, 12, 1),
+                    }
+                )
+                && calendar.History.Sum(m => m.Seconds) == 13800,
+            "Saved months include past years in newest-first order and ignore invalid durations"
+        );
+        var empty = CalendarOverview.Create(rows, new DateTime(2026, 11, 1));
+        Check(
+            empty.MondayOffset == 6 && empty.Days.Count == 30 && empty.Seconds == 0,
+            "Six-row months and empty historical periods remain valid"
+        );
+        Check(
+            CalendarOverview.Create(rows, DateTime.MinValue).Days.Count == 31
+                && CalendarOverview.Create(rows, DateTime.MaxValue).Days.Count == 31,
+            "Calendar supports first and final months without date overflow"
+        );
+        Check(
+            rows[0].Seconds == 3600 && rows.Count == 10,
+            "Browsing calendar history does not alter saved activity"
+        );
     }
-    static void NewFeatures() {
-        var fresh=new State();
-        Check(!fresh.IncludePrivateWindows && !fresh.CaptureTitles && !fresh.CollectBrowserResources,"Privacy-sensitive capture defaults off");
-        fresh.CaptureTitles=true; fresh.IncludePrivateWindows=true; fresh.Normalize();
-        Check(!fresh.CaptureTitles && !fresh.IncludePrivateWindows,"Legacy settings migrate to private-by-default behavior");
-        Check(BrowserPrivacy.Classify("chrome",new[]{"Profile: Person 1"})==BrowserMode.Normal,"Supported normal browser requires explicit profile evidence");
-        Check(BrowserPrivacy.Classify("chrome",new[]{"Profile","Incognito"})==BrowserMode.Private,"Private indicator overrides normal-looking controls");
-        Check(BrowserPrivacy.Classify("firefox",new[]{"Profile"})==BrowserMode.Unknown && !BrowserPrivacy.MayRecord(BrowserMode.Unknown,false),"Unverified browsers fail closed, including Firefox always-private mode");
-        var recorder=new VisitRecorder(); var stamp=new DateTime(2026,10,12,12,0,0);
-        recorder.Add(fresh,stamp,10,new Snapshot {App="chrome",Title="secret",Domain="private.example",BrowserMode=BrowserMode.Private});
-        Check(fresh.Activities.Count==0,"Private foreground apps and page metadata are not stored while opt-out is active");
-        fresh.IncludePrivateWindows=true;
-        recorder.Add(fresh,stamp,10,new Snapshot {App="chrome",BrowserMode=BrowserMode.Private});
-        Check(fresh.Activities.Count==1,"Explicit private-recording opt-in permits private activity");
-        var r0=ResourceSample(stamp,0,"code",0,0); var r1=ResourceSample(stamp.AddSeconds(5),5,"code",2,1); var r2=ResourceSample(stamp.AddSeconds(10),10,"code",4,2);
-        var resourcePrivate=new State(); var monitor=new ResourceMonitor();
-        monitor.Accept(resourcePrivate,r0); monitor.Accept(resourcePrivate,r1); monitor.Accept(resourcePrivate,r2);
-        Check(resourcePrivate.Resources.Count==0 && resourcePrivate.Sessions.Count==0,"Browser background totals and sessions remain off by default");
-        Check(CalendarPeriod.Start(new DateTime(2026,10,18),1)==new DateTime(2026,10,12) && CalendarPeriod.End(new DateTime(2026,10,18),1)==new DateTime(2026,10,19),"Calendar weeks start Monday and end before next Monday");
-        Check(CalendarPeriod.Contains("2024-02-29",new DateTime(2024,2,1),2) && !CalendarPeriod.Contains("2024-03-01",new DateTime(2024,2,1),2),"Leap-year calendar months retain exactly their own days");
-        Check(CalendarPeriod.Contains("2025-12-31",new DateTime(2026,1,1),1),"Weeks across year boundaries include prior-year history");
-        Check(CalendarPeriod.Move(new DateTime(2026,3,31),2,-1)==new DateTime(2026,2,28),"Month navigation handles shorter months");
-        Check(!CalendarPeriod.Contains("invalid",stamp,0),"Malformed dates cannot leak into selected history");
-        Check(StartupManager.Command(@"C:\App Folder\ScreenTime.exe")=="\"C:\\App Folder\\ScreenTime.exe\" --background","Startup command quotes paths with spaces");
-        var state=Fixture(); monitor=new ResourceMonitor(); monitor.Accept(state,r0); monitor.Accept(state,r1); monitor.Accept(state,r2);
-        Check(state.Sessions.Single().RunningSeconds==10 && state.Sessions.Single().BackgroundSeconds==10,"Ten-second minimum creates one app-running session");
-        string first=state.Sessions.Single().SessionId;
-        monitor.Reset(); monitor.Accept(state,r0); monitor.Accept(state,r1); monitor.Accept(state,r2);
-        Check(state.Sessions.Count==2 && state.Sessions.Last().SessionId!=first,"New observation after pause or restart gets a separate session");
-        var midnight=new DateTime(2026,10,13,0,0,5); var night=Fixture();
-        ResourceMonitor.Accumulate(night,new ResourceInterval { App="overwatch",SessionId="session",End=midnight,Seconds=10,PrivateMemoryMb=2048,Gpu=60,SystemCpu=35,SystemMemoryMb=9000,Foreground=true });
-        ResourceMonitor.Accumulate(night,new ResourceInterval { App="overwatch",SessionId="session",End=midnight.AddSeconds(5),Seconds=5,PrivateMemoryMb=1024,Gpu=null,Foreground=true });
-        var combined=ActivityDetails.Combine(night.Sessions);
-        Check(night.Sessions.Count==2 && night.Sessions.Select(r=>r.SessionId).Distinct().Count()==1 && combined.RunningSeconds==15,"Midnight divides a session into days without duplicating elapsed time");
-        Check(Math.Abs(combined.Metric("PrivateRam").Average-1706.666666)<0.001 && combined.Metric("PrivateRam").Peak==2048,"RAM averages are duration weighted and peaks preserved");
-        Check(combined.Metric("Gpu").Average==60 && combined.Metric("Gpu").Seconds==10,"Missing GPU samples do not pull averages toward zero");
-        Check(combined.Metric("Fan").Seconds==0 && combined.Metric("SystemCpu").Average==35,"Unsupported fans stay unavailable and PC metrics stay separate");
-        r1.Processes[0].PrivateMemoryMb=25; r1.Processes[1].PrivateMemoryMb=50;
-        Check(ResourceMonitor.Compare(r0,r1).Single().PrivateMemoryMb==75,"Private working set stays separate from shared-inclusive working set");
-        r1.Processes[1].PrivateMemoryMb=null;
-        Check(!ResourceMonitor.Compare(r0,r1).Single().PrivateMemoryMb.HasValue,"Partial process memory is unavailable instead of an incomplete total");
-        var shifted=ResourceSample(stamp.AddHours(1),5,"code",2,1);
-        Check(ResourceMonitor.Compare(r0,shifted).Count==0,"Clock changes cannot fabricate a long session");
-        var gpu0=new ResourceSnapshot {GpuAvailable=true}; var gpu1=new ResourceSnapshot {GpuAvailable=true};
-        string a="pid_1_luid_0x0000_0x0001_phys_0_eng_0_engtype_3D", b="pid_2_luid_0x0000_0x0001_phys_0_eng_0_engtype_3D", c="pid_1_luid_0x0000_0x0001_phys_0_eng_1_engtype_Copy";
-        foreach(string key in new[]{a,b,c}) gpu0.GpuSamples[key]=GpuSample(0,10000000);
-        gpu1.GpuSamples[a]=GpuSample(2000000,20000000); gpu1.GpuSamples[b]=GpuSample(3000000,20000000); gpu1.GpuSamples[c]=GpuSample(4000000,20000000);
-        Check(Math.Abs(ResourceMonitor.BusiestGpu(gpu0,gpu1,new HashSet<int>{1,2}).Value-50)<0.01,"GPU sums child processes per engine then selects the busiest engine");
-        Check(Math.Abs(ResourceMonitor.BusiestGpu(gpu0,gpu1,new HashSet<int>{1}).Value-40)<0.01,"Per-app GPU excludes other processes");
+
+    static void NewFeatures()
+    {
+        var fresh = new State();
+        Check(
+            !fresh.IncludePrivateWindows && !fresh.CaptureTitles && !fresh.CollectBrowserResources,
+            "Privacy-sensitive capture defaults off"
+        );
+        fresh.CaptureTitles = true;
+        fresh.IncludePrivateWindows = true;
+        fresh.Normalize();
+        Check(
+            !fresh.CaptureTitles && !fresh.IncludePrivateWindows,
+            "Legacy settings migrate to private-by-default behavior"
+        );
+        Check(
+            BrowserPrivacy.Classify("chrome", new[] { "Profile: Person 1" }) == BrowserMode.Normal,
+            "Supported normal browser requires explicit profile evidence"
+        );
+        Check(
+            BrowserPrivacy.Classify("chrome", new[] { "Profile", "Incognito" })
+                == BrowserMode.Private,
+            "Private indicator overrides normal-looking controls"
+        );
+        Check(
+            BrowserPrivacy.Classify("firefox", new[] { "Profile" }) == BrowserMode.Unknown
+                && !BrowserPrivacy.MayRecord(BrowserMode.Unknown, false),
+            "Unverified browsers fail closed, including Firefox always-private mode"
+        );
+        var recorder = new VisitRecorder();
+        var stamp = new DateTime(2026, 10, 12, 12, 0, 0);
+        recorder.Add(
+            fresh,
+            stamp,
+            10,
+            new Snapshot
+            {
+                App = "chrome",
+                Title = "secret",
+                Domain = "private.example",
+                BrowserMode = BrowserMode.Private,
+            }
+        );
+        Check(
+            fresh.Activities.Count == 0,
+            "Private foreground apps and page metadata are not stored while opt-out is active"
+        );
+        fresh.IncludePrivateWindows = true;
+        recorder.Add(
+            fresh,
+            stamp,
+            10,
+            new Snapshot { App = "chrome", BrowserMode = BrowserMode.Private }
+        );
+        Check(
+            fresh.Activities.Count == 1,
+            "Explicit private-recording opt-in permits private activity"
+        );
+        var r0 = ResourceSample(stamp, 0, "code", 0, 0);
+        var r1 = ResourceSample(stamp.AddSeconds(5), 5, "code", 2, 1);
+        var r2 = ResourceSample(stamp.AddSeconds(10), 10, "code", 4, 2);
+        var resourcePrivate = new State();
+        var monitor = new ResourceMonitor();
+        monitor.Accept(resourcePrivate, r0);
+        monitor.Accept(resourcePrivate, r1);
+        monitor.Accept(resourcePrivate, r2);
+        Check(
+            resourcePrivate.Resources.Count == 0 && resourcePrivate.Sessions.Count == 0,
+            "Browser background totals and sessions remain off by default"
+        );
+        Check(
+            CalendarPeriod.Start(new DateTime(2026, 10, 18), 1) == new DateTime(2026, 10, 12)
+                && CalendarPeriod.End(new DateTime(2026, 10, 18), 1) == new DateTime(2026, 10, 19),
+            "Calendar weeks start Monday and end before next Monday"
+        );
+        Check(
+            CalendarPeriod.Contains("2024-02-29", new DateTime(2024, 2, 1), 2)
+                && !CalendarPeriod.Contains("2024-03-01", new DateTime(2024, 2, 1), 2),
+            "Leap-year calendar months retain exactly their own days"
+        );
+        Check(
+            CalendarPeriod.Contains("2025-12-31", new DateTime(2026, 1, 1), 1),
+            "Weeks across year boundaries include prior-year history"
+        );
+        Check(
+            CalendarPeriod.Move(new DateTime(2026, 3, 31), 2, -1) == new DateTime(2026, 2, 28),
+            "Month navigation handles shorter months"
+        );
+        Check(
+            !CalendarPeriod.Contains("invalid", stamp, 0),
+            "Malformed dates cannot leak into selected history"
+        );
+        Check(
+            StartupManager.Command(@"C:\App Folder\ScreenTime.exe")
+                == "\"C:\\App Folder\\ScreenTime.exe\" --background",
+            "Startup command quotes paths with spaces"
+        );
+        var state = Fixture();
+        monitor = new ResourceMonitor();
+        monitor.Accept(state, r0);
+        monitor.Accept(state, r1);
+        monitor.Accept(state, r2);
+        Check(
+            state.Sessions.Single().RunningSeconds == 10
+                && state.Sessions.Single().BackgroundSeconds == 10,
+            "Ten-second minimum creates one app-running session"
+        );
+        string first = state.Sessions.Single().SessionId;
+        monitor.Reset();
+        monitor.Accept(state, r0);
+        monitor.Accept(state, r1);
+        monitor.Accept(state, r2);
+        Check(
+            state.Sessions.Count == 2 && state.Sessions.Last().SessionId != first,
+            "New observation after pause or restart gets a separate session"
+        );
+        var midnight = new DateTime(2026, 10, 13, 0, 0, 5);
+        var night = Fixture();
+        ResourceMonitor.Accumulate(
+            night,
+            new ResourceInterval
+            {
+                App = "overwatch",
+                SessionId = "session",
+                End = midnight,
+                Seconds = 10,
+                PrivateMemoryMb = 2048,
+                Gpu = 60,
+                SystemCpu = 35,
+                SystemMemoryMb = 9000,
+                Foreground = true,
+            }
+        );
+        ResourceMonitor.Accumulate(
+            night,
+            new ResourceInterval
+            {
+                App = "overwatch",
+                SessionId = "session",
+                End = midnight.AddSeconds(5),
+                Seconds = 5,
+                PrivateMemoryMb = 1024,
+                Gpu = null,
+                Foreground = true,
+            }
+        );
+        var combined = ActivityDetails.Combine(night.Sessions);
+        Check(
+            night.Sessions.Count == 2
+                && night.Sessions.Select(r => r.SessionId).Distinct().Count() == 1
+                && combined.RunningSeconds == 15,
+            "Midnight divides a session into days without duplicating elapsed time"
+        );
+        Check(
+            Math.Abs(combined.Metric("PrivateRam").Average - 1706.666666) < 0.001
+                && combined.Metric("PrivateRam").Peak == 2048,
+            "RAM averages are duration weighted and peaks preserved"
+        );
+        Check(
+            combined.Metric("Gpu").Average == 60 && combined.Metric("Gpu").Seconds == 10,
+            "Missing GPU samples do not pull averages toward zero"
+        );
+        Check(
+            combined.Metric("Fan").Seconds == 0 && combined.Metric("SystemCpu").Average == 35,
+            "Unsupported fans stay unavailable and PC metrics stay separate"
+        );
+        r1.Processes[0].PrivateMemoryMb = 25;
+        r1.Processes[1].PrivateMemoryMb = 50;
+        Check(
+            ResourceMonitor.Compare(r0, r1).Single().PrivateMemoryMb == 75,
+            "Private working set stays separate from shared-inclusive working set"
+        );
+        r1.Processes[1].PrivateMemoryMb = null;
+        Check(
+            !ResourceMonitor.Compare(r0, r1).Single().PrivateMemoryMb.HasValue,
+            "Partial process memory is unavailable instead of an incomplete total"
+        );
+        var shifted = ResourceSample(stamp.AddHours(1), 5, "code", 2, 1);
+        Check(
+            ResourceMonitor.Compare(r0, shifted).Count == 0,
+            "Clock changes cannot fabricate a long session"
+        );
+        var gpu0 = new ResourceSnapshot { GpuAvailable = true };
+        var gpu1 = new ResourceSnapshot { GpuAvailable = true };
+        string a = "pid_1_luid_0x0000_0x0001_phys_0_eng_0_engtype_3D",
+            b = "pid_2_luid_0x0000_0x0001_phys_0_eng_0_engtype_3D",
+            c = "pid_1_luid_0x0000_0x0001_phys_0_eng_1_engtype_Copy";
+        foreach (string key in new[] { a, b, c })
+            gpu0.GpuSamples[key] = GpuSample(0, 10000000);
+        gpu1.GpuSamples[a] = GpuSample(2000000, 20000000);
+        gpu1.GpuSamples[b] = GpuSample(3000000, 20000000);
+        gpu1.GpuSamples[c] = GpuSample(4000000, 20000000);
+        Check(
+            Math.Abs(ResourceMonitor.BusiestGpu(gpu0, gpu1, new HashSet<int> { 1, 2 }).Value - 50)
+                < 0.01,
+            "GPU sums child processes per engine then selects the busiest engine"
+        );
+        Check(
+            Math.Abs(ResourceMonitor.BusiestGpu(gpu0, gpu1, new HashSet<int> { 1 }).Value - 40)
+                < 0.01,
+            "Per-app GPU excludes other processes"
+        );
         gpu0.GpuSamples.Remove(a);
-        Check(!ResourceMonitor.BusiestGpu(gpu0,gpu1,new HashSet<int>{1}).HasValue,"New GPU counters wait for a second sample");
+        Check(
+            !ResourceMonitor.BusiestGpu(gpu0, gpu1, new HashSet<int> { 1 }).HasValue,
+            "New GPU counters wait for a second sample"
+        );
     }
-    static CounterSample GpuSample(long raw,long time) { return new CounterSample(raw,0,10000000,10000000,time,time,PerformanceCounterType.Timer100Ns); }
-    static void MinimumLogChecks() {
-        Check(new State().MinimumLogSeconds==10,"Fresh settings default to ten seconds before logging");
-        var stamp=new DateTime(2026,10,17,12,0,0); var app=new Snapshot {App="code"};
-        var state=Fixture(); state.MinimumLogSeconds=30; var recorder=new VisitRecorder();
-        recorder.Add(state,stamp.AddSeconds(10),10,app); recorder.Add(state,stamp.AddSeconds(20),10,app);
-        Check(state.Activities.Count==0,"Longer minimum keeps unqualified foreground activity out of history");
-        recorder.Add(state,stamp.AddSeconds(30),10,app);
-        Check(state.Activities.Single().Seconds==30,"A qualifying custom visit includes all time from its start");
-        state.MinimumLogSeconds=60; state.Normalize();
-        Check(state.Activities.Single().Seconds==30,"Increasing the minimum never removes existing history");
-        state=Fixture(); state.MinimumLogSeconds=3; recorder=new VisitRecorder();
-        recorder.Add(state,stamp.AddSeconds(2),2,app); recorder.Reset(); recorder.Add(state,stamp.AddSeconds(4),2,app);
-        Check(state.Activities.Count==0,"Separate short visits do not combine under a custom minimum");
-        recorder.Add(state,stamp.AddSeconds(5),1,app);
-        Check(state.Activities.Single().Seconds==3,"A minimum shorter than ten seconds works at its exact boundary");
-        state=Fixture(); state.MinimumLogSeconds=20; recorder=new VisitRecorder();
-        var pageA=new Snapshot {App="chrome",Title="Page A",Domain="a.example",BrowserMode=BrowserMode.Normal};
-        var pageB=new Snapshot {App="chrome",Title="Page B",Domain="b.example",BrowserMode=BrowserMode.Normal};
-        recorder.Add(state,stamp.AddSeconds(10),10,pageA); recorder.Add(state,stamp.AddSeconds(20),10,pageB);
-        Check(state.Activities.Count==0,"Changing browser pages resets the custom qualification time");
-        recorder.Add(state,stamp.AddSeconds(30),10,pageB);
-        Check(state.Activities.Single().Domain=="b.example" && state.Activities.Single().Seconds==20,"Browser pages use the configured minimum independently");
-        state=Fixture(); state.MinimumLogSeconds=20; var monitor=new ResourceMonitor();
-        for(int i=0;i<=3;i++) monitor.Accept(state,ResourceSample(stamp.AddSeconds(i*5),i*5,"code",i*2,i));
-        Check(state.Resources.Count==0 && state.Sessions.Count==0,"Resource runs wait for the custom minimum");
-        monitor.Accept(state,ResourceSample(stamp.AddSeconds(20),20,"code",8,4));
-        Check(state.Resources.Single().RunningSeconds==20 && state.Sessions.Single().RunningSeconds==20,"Qualified resource sessions include their initial samples");
-        state=Fixture(); state.MinimumLogSeconds=0; recorder=new VisitRecorder(); recorder.Add(state,stamp,1,app);
-        monitor=new ResourceMonitor(); monitor.Accept(state,ResourceSample(stamp,0,"code",0,0)); monitor.Accept(state,ResourceSample(stamp.AddSeconds(5),5,"code",2,1));
-        Check(state.Activities.Single().Seconds==1 && state.Resources.Single().RunningSeconds==5,"Zero minimum records the first complete foreground and resource intervals");
-        state.MinimumLogSeconds=-1; state.Normalize(); Check(state.MinimumLogSeconds==10,"Invalid negative saved minima fall back to ten seconds");
-        state.MinimumLogSeconds=9999; state.Normalize(); Check(state.MinimumLogSeconds==3600,"Saved minimum logging time is bounded to one hour");
+
+    static CounterSample GpuSample(long raw, long time)
+    {
+        return new CounterSample(
+            raw,
+            0,
+            10000000,
+            10000000,
+            time,
+            time,
+            PerformanceCounterType.Timer100Ns
+        );
     }
-    static void Live() {
+
+    static void MinimumLogChecks()
+    {
+        Check(
+            new State().MinimumLogSeconds == 10,
+            "Fresh settings default to ten seconds before logging"
+        );
+        var stamp = new DateTime(2026, 10, 17, 12, 0, 0);
+        var app = new Snapshot { App = "code" };
+        var state = Fixture();
+        state.MinimumLogSeconds = 30;
+        var recorder = new VisitRecorder();
+        recorder.Add(state, stamp.AddSeconds(10), 10, app);
+        recorder.Add(state, stamp.AddSeconds(20), 10, app);
+        Check(
+            state.Activities.Count == 0,
+            "Longer minimum keeps unqualified foreground activity out of history"
+        );
+        recorder.Add(state, stamp.AddSeconds(30), 10, app);
+        Check(
+            state.Activities.Single().Seconds == 30,
+            "A qualifying custom visit includes all time from its start"
+        );
+        state.MinimumLogSeconds = 60;
+        state.Normalize();
+        Check(
+            state.Activities.Single().Seconds == 30,
+            "Increasing the minimum never removes existing history"
+        );
+        state = Fixture();
+        state.MinimumLogSeconds = 3;
+        recorder = new VisitRecorder();
+        recorder.Add(state, stamp.AddSeconds(2), 2, app);
+        recorder.Reset();
+        recorder.Add(state, stamp.AddSeconds(4), 2, app);
+        Check(
+            state.Activities.Count == 0,
+            "Separate short visits do not combine under a custom minimum"
+        );
+        recorder.Add(state, stamp.AddSeconds(5), 1, app);
+        Check(
+            state.Activities.Single().Seconds == 3,
+            "A minimum shorter than ten seconds works at its exact boundary"
+        );
+        state = Fixture();
+        state.MinimumLogSeconds = 20;
+        recorder = new VisitRecorder();
+        var pageA = new Snapshot
+        {
+            App = "chrome",
+            Title = "Page A",
+            Domain = "a.example",
+            BrowserMode = BrowserMode.Normal,
+        };
+        var pageB = new Snapshot
+        {
+            App = "chrome",
+            Title = "Page B",
+            Domain = "b.example",
+            BrowserMode = BrowserMode.Normal,
+        };
+        recorder.Add(state, stamp.AddSeconds(10), 10, pageA);
+        recorder.Add(state, stamp.AddSeconds(20), 10, pageB);
+        Check(
+            state.Activities.Count == 0,
+            "Changing browser pages resets the custom qualification time"
+        );
+        recorder.Add(state, stamp.AddSeconds(30), 10, pageB);
+        Check(
+            state.Activities.Single().Domain == "b.example"
+                && state.Activities.Single().Seconds == 20,
+            "Browser pages use the configured minimum independently"
+        );
+        state = Fixture();
+        state.MinimumLogSeconds = 20;
+        var monitor = new ResourceMonitor();
+        for (int i = 0; i <= 3; i++)
+            monitor.Accept(state, ResourceSample(stamp.AddSeconds(i * 5), i * 5, "code", i * 2, i));
+        Check(
+            state.Resources.Count == 0 && state.Sessions.Count == 0,
+            "Resource runs wait for the custom minimum"
+        );
+        monitor.Accept(state, ResourceSample(stamp.AddSeconds(20), 20, "code", 8, 4));
+        Check(
+            state.Resources.Single().RunningSeconds == 20
+                && state.Sessions.Single().RunningSeconds == 20,
+            "Qualified resource sessions include their initial samples"
+        );
+        state = Fixture();
+        state.MinimumLogSeconds = 0;
+        recorder = new VisitRecorder();
+        recorder.Add(state, stamp, 1, app);
+        monitor = new ResourceMonitor();
+        monitor.Accept(state, ResourceSample(stamp, 0, "code", 0, 0));
+        monitor.Accept(state, ResourceSample(stamp.AddSeconds(5), 5, "code", 2, 1));
+        Check(
+            state.Activities.Single().Seconds == 1 && state.Resources.Single().RunningSeconds == 5,
+            "Zero minimum records the first complete foreground and resource intervals"
+        );
+        state.MinimumLogSeconds = -1;
+        state.Normalize();
+        Check(
+            state.MinimumLogSeconds == 10,
+            "Invalid negative saved minima fall back to ten seconds"
+        );
+        state.MinimumLogSeconds = 9999;
+        state.Normalize();
+        Check(state.MinimumLogSeconds == 3600, "Saved minimum logging time is bounded to one hour");
+    }
+
+    static void Live()
+    {
         // Known allocation and single-core load; no browser data or real history is saved.
-        var allocation=new byte[128*1024*1024]; for(int i=0;i<allocation.Length;i+=4096) allocation[i]=1;
-        var first=ResourceMonitor.Capture();
-        var watch=Stopwatch.StartNew(); long iterations=0;
-        var work=Task.Run(()=> { while(watch.Elapsed.TotalSeconds<4) Interlocked.Increment(ref iterations); });
-        work.Wait(); var second=ResourceMonitor.Capture();
-        int pid=Process.GetCurrentProcess().Id;
-        var process=second.Processes.Single(p=>p.Pid==pid);
-        var usage=ResourceMonitor.Compare(first,second).Single(r=>r.App==process.App);
-        Check(process.PrivateMemoryMb.HasValue && process.PrivateMemoryMb.Value>=120,"Native private RAM detects the controlled 128 MiB allocation");
-        double? perfMemory=null;
-        var counters=new PerformanceCounterCategory("Process").ReadCategory();
-        foreach(InstanceData entry in counters["ID Process"].Values) if(entry.RawValue==pid) perfMemory=counters["Working Set - Private"][entry.InstanceName].RawValue/1048576.0;
-        Check(perfMemory.HasValue && Math.Abs(perfMemory.Value-process.PrivateMemoryMb.Value)<32,"Private RAM agrees with independent Windows performance counter within sampling tolerance");
-        double cpu=100*usage.CpuSeconds/usage.CpuCapacitySeconds;
-        Check(cpu>30.0/Environment.ProcessorCount && cpu<=100,"Known CPU load yields a positive normalized process reading");
-        Check(usage.SystemCpu.HasValue && usage.SystemMemoryMb>128,"Whole-PC CPU and used physical RAM are readable");
-        Console.WriteLine("Live check: private RAM="+process.PrivateMemoryMb.Value.ToString("0.0")+" MiB; Windows counter="+perfMemory.Value.ToString("0.0")+" MiB; CPU="+cpu.ToString("0.00")+"%; GPU counters="+second.GpuAvailable+"; RAM firmware MHz="+second.RamClock+"; fan RPM unavailable.");
+        var allocation = new byte[128 * 1024 * 1024];
+        for (int i = 0; i < allocation.Length; i += 4096)
+            allocation[i] = 1;
+        var first = ResourceMonitor.Capture();
+        var watch = Stopwatch.StartNew();
+        long iterations = 0;
+        var work = Task.Run(() =>
+        {
+            while (watch.Elapsed.TotalSeconds < 4)
+                Interlocked.Increment(ref iterations);
+        });
+        work.Wait();
+        var second = ResourceMonitor.Capture();
+        int pid = Process.GetCurrentProcess().Id;
+        var process = second.Processes.Single(p => p.Pid == pid);
+        var usage = ResourceMonitor.Compare(first, second).Single(r => r.App == process.App);
+        Check(
+            process.PrivateMemoryMb.HasValue && process.PrivateMemoryMb.Value >= 120,
+            "Native private RAM detects the controlled 128 MiB allocation"
+        );
+        double? perfMemory = null;
+        var counters = new PerformanceCounterCategory("Process").ReadCategory();
+        foreach (InstanceData entry in counters["ID Process"].Values)
+            if (entry.RawValue == pid)
+                perfMemory =
+                    counters["Working Set - Private"][entry.InstanceName].RawValue / 1048576.0;
+        Check(
+            perfMemory.HasValue && Math.Abs(perfMemory.Value - process.PrivateMemoryMb.Value) < 32,
+            "Private RAM agrees with independent Windows performance counter within sampling tolerance"
+        );
+        double cpu = 100 * usage.CpuSeconds / usage.CpuCapacitySeconds;
+        Check(
+            cpu > 30.0 / Environment.ProcessorCount && cpu <= 100,
+            "Known CPU load yields a positive normalized process reading"
+        );
+        Check(
+            usage.SystemCpu.HasValue && usage.SystemMemoryMb > 128,
+            "Whole-PC CPU and used physical RAM are readable"
+        );
+        Console.WriteLine(
+            "Live check: private RAM="
+                + process.PrivateMemoryMb.Value.ToString("0.0")
+                + " MiB; Windows counter="
+                + perfMemory.Value.ToString("0.0")
+                + " MiB; CPU="
+                + cpu.ToString("0.00")
+                + "%; GPU counters="
+                + second.GpuAvailable
+                + "; RAM firmware MHz="
+                + second.RamClock
+                + "; fan RPM unavailable."
+        );
         GC.KeepAlive(allocation);
     }
 }

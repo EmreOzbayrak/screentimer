@@ -1,4 +1,5 @@
 using System.Reflection;
+
 [assembly: AssemblyTitle("ScreenTime")]
 [assembly: AssemblyDescription("Local Windows tray screen-time and resource history")]
 [assembly: AssemblyProduct("ScreenTime")]
