@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
 $root = $PSScriptRoot
-$sourceFiles = @('.gitignore', '.gitattributes', 'README.md', 'LICENSE', 'PRIVACY.md', 'SECURITY.md', 'PUBLISHING.md', 'build.ps1', 'install.ps1', 'package.ps1', 'dist/.gitkeep')
+$sourceFiles = @('.gitignore', '.gitattributes', '.editorconfig', '.config/dotnet-tools.json', 'CONTRIBUTING.md', 'README.md', 'LICENSE', 'PRIVACY.md', 'SECURITY.md', 'PUBLISHING.md', 'build.ps1', 'install.ps1', 'package.ps1', 'dist/.gitkeep')
 foreach ($folder in @('src', 'tests', 'scripts', '.github', '.githooks')) {
     $sourceFiles += Get-ChildItem -LiteralPath (Join-Path $root $folder) -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\','/') }
 }

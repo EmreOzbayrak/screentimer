@@ -2,17 +2,33 @@ name: Windows build
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: Validate commit messages and pull request title
+        if: github.event_name != 'workflow_dispatch'
+        shell: pwsh
+        run: ./scripts/Check-CommitMessages.ps1 -EventFile $env:GITHUB_EVENT_PATH -EventName $env:GITHUB_EVENT_NAME
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check C# formatting
+        shell: pwsh
+        run: |
+          dotnet tool restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $sources = (Get-ChildItem -Path src, tests -Recurse -File -Filter '*.cs').FullName
+          dotnet csharpier check --no-msbuild-check @sources
       - name: Scan source for accidental secrets and private files
         shell: powershell
         run: .\scripts\Check-Secrets.ps1
